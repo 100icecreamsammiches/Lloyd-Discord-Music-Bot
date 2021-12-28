@@ -2,6 +2,7 @@ import discord
 from discord.enums import try_enum
 from discord.ext import commands
 import youtube_dl
+import typing
 
 intents = discord.Intents().all()
 client = discord.Client(intents=intents)
@@ -75,7 +76,7 @@ async def leave(ctx):
         await ctx.send("Something went wrong and it's probably your fault.")
 
 @bot.command(name='p', help='To play song')
-async def play(ctx,url):
+async def play(ctx, timestamp: typing.Optional[int]=0, *, url):
     voice_client = ctx.message.guild.voice_client
     if voice_client == None:
         await join(ctx)
@@ -90,11 +91,10 @@ async def play(ctx,url):
             with youtube_dl.YoutubeDL(ytdl_format_options) as ydl:
                 info = ydl.extract_info(url, download=False)
                 URL = info['formats'][0]['url']
-            #player = await YTDLSource.from_url(url, loop=bot.loop, stream=True)
-            voice_channel.play(discord.FFmpegPCMAudio(URL))
-            #ctx.voice_client.play(player, after=lambda e: print(f'Player error: {e}') if e else None)
-            #voice_channel.play(discord.FFmpegPCMAudio(executable="ffmpeg", source=filename))
-    except:
+            print(timestamp)
+            voice_channel.play(discord.FFmpegPCMAudio(source=URL, options='-vn -ss {}'.format(timestamp)))
+    except Exception as err:
+        print(err)
         await ctx.send("Whoops something went wrong lol, try again")
 
 @bot.command(name='pause', help='This command pauses the song')
@@ -173,4 +173,4 @@ async def tip(ctx, *, user):
         except:
             await ctx.send("{} hasn't given me any tips yet! Rude...".format(user))
 
-bot.run("token lol")
+bot.run("token")

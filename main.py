@@ -87,9 +87,13 @@ async def play(ctx,url):
         server = ctx.message.guild
         voice_channel = server.voice_client
         async with ctx.typing():
-
-            filename = await YTDLSource.from_url(url, loop=bot.loop)
-            voice_channel.play(discord.FFmpegPCMAudio(executable="ffmpeg", source=filename))
+            with youtube_dl.YoutubeDL(ytdl_format_options) as ydl:
+                info = ydl.extract_info(url, download=False)
+                URL = info['formats'][0]['url']
+            #player = await YTDLSource.from_url(url, loop=bot.loop, stream=True)
+            voice_channel.play(discord.FFmpegPCMAudio(URL))
+            #ctx.voice_client.play(player, after=lambda e: print(f'Player error: {e}') if e else None)
+            #voice_channel.play(discord.FFmpegPCMAudio(executable="ffmpeg", source=filename))
     except:
         await ctx.send("Whoops something went wrong lol, try again")
 
@@ -116,10 +120,9 @@ async def resume(ctx):
 @bot.command(name='stop', help='Stops the song')
 async def stop(ctx):
     voice_client = ctx.message.guild.voice_client
-    try:
-        if voice_client.is_playing():
-            await voice_client.stop()
-    except:
+    if voice_client.is_playing():
+        voice_client.stop()
+    else:
         await ctx.send("Nothing's playing lol")
     await ctx.message.delete()
         
@@ -170,4 +173,4 @@ async def tip(ctx, *, user):
         except:
             await ctx.send("{} hasn't given me any tips yet! Rude...".format(user))
 
-bot.run("token")
+bot.run("ODk2MTAxNzgzOTAwOTMwMDg4.YWCN0g.HFK-go-4pt7AgrwYf9zcKe1US80")

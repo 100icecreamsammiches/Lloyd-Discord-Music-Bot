@@ -173,4 +173,4 @@ async def tip(ctx, *, user):
         except:
             await ctx.send("{} hasn't given me any tips yet! Rude...".format(user))
 
-bot.run("ODk2MTAxNzgzOTAwOTMwMDg4.YWCN0g.HFK-go-4pt7AgrwYf9zcKe1US80")
+bot.run("token lol")

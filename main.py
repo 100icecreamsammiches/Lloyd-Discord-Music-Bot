@@ -3,6 +3,7 @@ from discord.enums import try_enum
 from discord.ext import commands
 import youtube_dl
 import typing
+import math
 
 intents = discord.Intents().all()
 client = discord.Client(intents=intents)
@@ -76,8 +77,14 @@ async def leave(ctx):
         await ctx.send("Something went wrong and it's probably your fault.")
 
 @bot.command(name='p', help='To play song')
-async def play(ctx, timestamp: typing.Optional[int]=0, *, url):
+async def play(ctx, timestamp: typing.Optional[int]=0, speed: typing.Optional[float]=1, *, url):
     voice_client = ctx.message.guild.voice_client
+    if speed > 2:
+        option = '-filter:a "' + ('atempo=2.0,' * (math.floor(math.log(float(speed), 2)) - 1) ) + 'atempo=2.0"'
+    elif speed < 0.5:
+        option = '-filter:a "' + ('atempo=0.5,' * (math.floor(math.log(float(speed), 0.5)) - 1) ) + 'atempo=0.5"'
+    else:
+        option = '-filter:a "atempo={}"'.format(speed)
     if voice_client == None:
         await join(ctx)
     try:
@@ -91,10 +98,16 @@ async def play(ctx, timestamp: typing.Optional[int]=0, *, url):
             with youtube_dl.YoutubeDL(ytdl_format_options) as ydl:
                 info = ydl.extract_info(url, download=False)
                 URL = info['formats'][0]['url']
-            print(timestamp)
-            voice_channel.play(discord.FFmpegPCMAudio(source=URL, options='-vn -ss {}'.format(timestamp)))
+
+            for i in range(len(url) - 3):
+                if url[i:i+3] == "?t=":
+                    timestamp = int(url[i+3:])
+            voice_channel.play(discord.FFmpegPCMAudio(source=URL, before_options='-vn -ss {} -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -threads 16'.format(timestamp), options=option))
     except Exception as err:
         print(err)
+        errorLog = open("log.txt", "w")
+        errorLog.write(str(err))
+        errorLog.close()
         await ctx.send("Whoops something went wrong lol, try again")
 
 @bot.command(name='pause', help='This command pauses the song')
@@ -172,5 +185,10 @@ async def tip(ctx, *, user):
             await ctx.send("{} has given me {} tips!".format(tips[place][0], tips[place][1]))
         except:
             await ctx.send("{} hasn't given me any tips yet! Rude...".format(user))
+
+@bot.command(name="error", help="tells you exactly how i failed")
+async def error(ctx):
+    await ctx.message.delete()
+    await ctx.send(file=discord.File("log.txt"))
 
 bot.run("token")

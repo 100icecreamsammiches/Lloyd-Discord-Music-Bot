@@ -79,18 +79,23 @@ async def leave(ctx):
 @bot.command(name='p', help='To play song')
 async def play(ctx, timestamp: typing.Optional[int]=0, speed: typing.Optional[float]=1, *, url):
     voice_client = ctx.message.guild.voice_client
+    
     if speed > 2:
-        option = '-filter:a "' + ('atempo=2.0,' * (math.floor(math.log(float(speed), 2)) - 1) ) + 'atempo=2.0"'
+        power = math.floor(math.log(float(speed), 2))
+        option = '-filter:a "' + ('atempo=2.0,' * power) + 'atempo={}"'.format(speed / (2**power))
     elif speed < 0.5:
-        option = '-filter:a "' + ('atempo=0.5,' * (math.floor(math.log(float(speed), 0.5)) - 1) ) + 'atempo=0.5"'
+        power = math.floor(math.log(float(speed), 0.5))
+        option = '-filter:a "' + ('atempo=0.5,' * power) + 'atempo={}"'.format(speed / (0.5**power))
     else:
         option = '-filter:a "atempo={}"'.format(speed)
+
     if voice_client == None:
         await join(ctx)
     try:
         await ctx.message.delete()
     except:
         "nothing happened"
+
     try:
         server = ctx.message.guild
         voice_channel = server.voice_client
@@ -102,7 +107,9 @@ async def play(ctx, timestamp: typing.Optional[int]=0, speed: typing.Optional[fl
             for i in range(len(url) - 3):
                 if url[i:i+3] == "?t=":
                     timestamp = int(url[i+3:])
+
             voice_channel.play(discord.FFmpegPCMAudio(source=URL, before_options='-vn -ss {} -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -threads 16'.format(timestamp), options=option))
+    
     except Exception as err:
         print(err)
         errorLog = open("log.txt", "w")

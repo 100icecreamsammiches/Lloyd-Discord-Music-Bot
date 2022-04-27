@@ -4,10 +4,12 @@ from discord.ext import commands
 import youtube_dl
 import typing
 import math
+from discord_slash import SlashCommand
 
 intents = discord.Intents().all()
-client = discord.Client(intents=intents)
+#client = discord.Client(intents=intents)
 bot = commands.Bot(command_prefix='.',intents=intents)
+slash = SlashCommand(bot, sync_commands=True)
 
 youtube_dl.utils.bug_reports_message = lambda: ''
 
@@ -52,54 +54,52 @@ class YTDLSource(discord.PCMVolumeTransformer):
 async def on_ready():
     print('Logged in as {0.user}'.format(bot))
 
-@bot.command(name='join', help='Tells the bot to join the voice channel')
+@slash.slash(name='join', description='Tells Lloyd to join the voice channel')
 async def join(ctx):
+    await clear(ctx)
     try:
-        if ctx.message.author.voice:
-            channel = ctx.message.author.voice.channel
+        if ctx.author.voice:
+            channel = ctx.author.voice.channel
             await channel.connect()
-        try:
-            await ctx.message.delete()
-        except:
-            "nothing happened"
+            await ctx.send("Joined")
     except:
         await ctx.send("You're probably not in a VC, why would you do that?")
 
-@bot.command(name='leave', help='To make the bot leave the voice channel')
+@slash.slash(name='leave', description='Tells Lloyd to leave the voice channel')
 async def leave(ctx):
+    await clear(ctx)
     try:
-        voice_client = ctx.message.guild.voice_client
-        await ctx.message.delete()
-        if voice_client.is_connected():
-            await voice_client.disconnect()
+        await ctx.voice_client.disconnect()
         await clear(ctx)
-    except:
-        await ctx.send("Something went wrong and it's probably your fault.")
+    except Exception as err:
+        "idk why it breaks but i do be lazy"
+    await ctx.send("Left")
 
-@bot.command(name='p', help='To play song')
-async def play(ctx, timestamp: typing.Optional[int]=0, speed: typing.Optional[float]=1, *, url):
-    voice_client = ctx.message.guild.voice_client
-    
+@slash.slash(name='play', description='Plays a song')
+async def play(ctx, url, speed=1, timestamp=0):
+    await clear(ctx)
+    await ctx.send("Playing")
+    voice_client = ctx.voice_client
+    speed = float(speed)
+
     if speed > 2:
         power = math.floor(math.log(float(speed), 2))
         option = '-filter:a "' + ('atempo=2.0,' * power) + 'atempo={}"'.format(speed / (2**power))
+
     elif speed < 0.5:
         power = math.floor(math.log(float(speed), 0.5))
         option = '-filter:a "' + ('atempo=0.5,' * power) + 'atempo={}"'.format(speed / (0.5**power))
+        
     else:
         option = '-filter:a "atempo={}"'.format(speed)
 
     if voice_client == None:
-        await join(ctx)
-    try:
-        await ctx.message.delete()
-    except:
-        "nothing happened"
+        await ctx.author.voice.channel.connect()
 
     try:
-        server = ctx.message.guild
-        voice_channel = server.voice_client
-        async with ctx.typing():
+        voice_channel = ctx.guild.voice_client
+        async with ctx.channel.typing():
+
             with youtube_dl.YoutubeDL(ytdl_format_options) as ydl:
                 info = ydl.extract_info(url, download=False)
                 URL = info['formats'][0]['url']
@@ -107,7 +107,6 @@ async def play(ctx, timestamp: typing.Optional[int]=0, speed: typing.Optional[fl
             for i in range(len(url) - 3):
                 if url[i:i+3] == "?t=":
                     timestamp = int(url[i+3:])
-
             voice_channel.play(discord.FFmpegPCMAudio(source=URL, before_options='-vn -ss {} -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -threads 16'.format(timestamp), options=option))
     
     except Exception as err:
@@ -115,43 +114,50 @@ async def play(ctx, timestamp: typing.Optional[int]=0, speed: typing.Optional[fl
         errorLog = open("log.txt", "w")
         errorLog.write(str(err))
         errorLog.close()
-        await ctx.send("Whoops something went wrong lol, try again")
+        await ctx.send("Something went wrong")
 
-@bot.command(name='pause', help='This command pauses the song')
+@slash.slash(name='pause', description='Pauses the song')
 async def pause(ctx):
-    voice_client = ctx.message.guild.voice_client
+    await clear(ctx)
+    voice_client = ctx.guild.voice_client
     try:
         if voice_client.is_playing():
             await voice_client.pause()
-        await ctx.message.delete()
     except:
         await ctx.send("Nothing's playing lol")
+    await ctx.send("Paused")
 
-@bot.command(name='resume', help='Resumes the song')
+@slash.slash(name='resume', description='Resumes the song')
 async def resume(ctx):
-    voice_client = ctx.message.guild.voice_client
+    await clear(ctx)
+    voice_client = ctx.guild.voice_client
     try:
         if voice_client.is_paused():
             await voice_client.resume()
     except:
         await ctx.send("Nothing's playing lol")
-    await ctx.message.delete()
+    await ctx.send("Resumed")
 
-@bot.command(name='stop', help='Stops the song')
+@slash.slash(name='stop', description='Stops the song')
 async def stop(ctx):
-    voice_client = ctx.message.guild.voice_client
+    await clear(ctx)
+    voice_client = ctx.guild.voice_client
     if voice_client.is_playing():
         voice_client.stop()
     else:
         await ctx.send("Nothing's playing lol")
-    await ctx.message.delete()
+    await ctx.send("Stopped")
         
-@bot.command(name='clear', help='Clears the channel')
+@slash.slash(name='clear', description='Clears the channel')
+async def clearCommand(ctx):
+    await clear(ctx)
+    await ctx.send("Cleared")
+
 async def clear(ctx):
-    if ctx.message.channel.id == 819991857957830717:
+    if ctx.channel.id == 819991857957830717:
         await ctx.channel.purge(limit=20)
 
-@bot.command(name="tip", help="give me a generous tip!")
+@slash.slash(name="tip", description="Give me a generous tip!")
 async def tip(ctx):
     await ctx.send("Thanks for the tip!", file = discord.File("lloyd-tip.gif"))
     f = open("tips.txt", mode="r")
@@ -160,9 +166,9 @@ async def tip(ctx):
     tips = []
     for i in range(0, len(lst) - 1, 2):
         tips.append([lst[i], int(lst[i+1])])
-    if "<@!" + str(ctx.message.author.id) + ">" not in [i[0] for i in tips]:
-        tips.append(["<@!" + str(ctx.message.author.id) + ">", 0])
-    tips[[i[0] for i in tips].index("<@!" + str(ctx.message.author.id) + ">")][1] += 1
+    if "<@!" + str(ctx.author.id) + ">" not in [i[0] for i in tips]:
+        tips.append(["<@!" + str(ctx.author.id) + ">", 0])
+    tips[[i[0] for i in tips].index("<@!" + str(ctx.author.id) + ">")][1] += 1
     
     string = ""
     for i in tips[:-1]:
@@ -173,7 +179,7 @@ async def tip(ctx):
     f.write(string)
     f.close()
 
-@bot.command(name="score", help="checks how many times everyone's tipped")
+@slash.slash(name="score", description="Checks how many times everyone's tipped")
 async def tip(ctx, *, user):
     if user == "":
         await ctx.send("Needs a user!")
@@ -193,9 +199,8 @@ async def tip(ctx, *, user):
         except:
             await ctx.send("{} hasn't given me any tips yet! Rude...".format(user))
 
-@bot.command(name="error", help="tells you exactly how i failed")
+@slash.slash(name="error", description="Tells you exactly how I failed")
 async def error(ctx):
-    await ctx.message.delete()
     await ctx.send(file=discord.File("log.txt"))
 
 bot.run("token")

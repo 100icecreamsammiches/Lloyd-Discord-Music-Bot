@@ -1,15 +1,14 @@
 import discord
+import asyncio
 from discord.enums import try_enum
 from discord.ext import commands
+from discord.ui import Button, View
 import youtube_dl
-import typing
 import math
-from discord_slash import SlashCommand
 
 intents = discord.Intents().all()
 #client = discord.Client(intents=intents)
 bot = commands.Bot(command_prefix='.',intents=intents)
-slash = SlashCommand(bot, sync_commands=True)
 
 youtube_dl.utils.bug_reports_message = lambda: ''
 
@@ -54,18 +53,28 @@ class YTDLSource(discord.PCMVolumeTransformer):
 async def on_ready():
     print('Logged in as {0.user}'.format(bot))
 
-@slash.slash(name='join', description='Tells Lloyd to join the voice channel')
+stopButton = Button(
+    style=discord.ButtonStyle.primary,
+    emoji="⏹️",
+)
+
+pauseButton = Button(
+    style=discord.ButtonStyle.primary,
+    emoji="⏯️",
+)
+
+@bot.slash_command(name='join', description='Tells Lloyd to join the voice channel')
 async def join(ctx):
     await clear(ctx)
     try:
         if ctx.author.voice:
             channel = ctx.author.voice.channel
             await channel.connect()
-            await ctx.send("Joined")
+            await ctx.response.send_message("Joined")
     except:
-        await ctx.send("You're probably not in a VC, why would you do that?")
+        await ctx.response.send_message("You're probably not in a VC, why would you do that?")
 
-@slash.slash(name='leave', description='Tells Lloyd to leave the voice channel')
+@bot.slash_command(name='leave', description='Tells Lloyd to leave the voice channel')
 async def leave(ctx):
     await clear(ctx)
     try:
@@ -73,13 +82,17 @@ async def leave(ctx):
         await clear(ctx)
     except Exception as err:
         "idk why it breaks but i do be lazy"
-    await ctx.send("Left")
+    await ctx.response.send_message("Left")
 
-@slash.slash(name='play', description='Plays a song')
+@bot.slash_command(name='play', description='Plays a song')
 async def play(ctx, url, speed=1, timestamp=0):
     await clear(ctx)
-    await ctx.send("Playing")
-    voice_client = ctx.voice_client
+    view = View()
+    view.add_item(stopButton)
+    view.add_item(pauseButton)
+    await ctx.response.send_message("Preparing...", view=view)
+    url = url.replace("m.youtube.com", "youtu.be").replace("watch?v=", "")
+    voice_client = ctx.guild.voice_client
     speed = float(speed)
 
     if speed > 2:
@@ -103,63 +116,94 @@ async def play(ctx, url, speed=1, timestamp=0):
             with youtube_dl.YoutubeDL(ytdl_format_options) as ydl:
                 info = ydl.extract_info(url, download=False)
                 URL = info['formats'][0]['url']
+                title = info.get("title", None)
 
             for i in range(len(url) - 3):
                 if url[i:i+3] == "?t=":
                     timestamp = int(url[i+3:])
-            voice_channel.play(discord.FFmpegPCMAudio(source=URL, before_options='-vn -ss {} -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -threads 16'.format(timestamp), options=option))
+            audio = discord.FFmpegPCMAudio(source=URL, before_options='-vn -ss {} -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -threads 16'.format(timestamp), options=option)
+            voice_channel.play(audio, after=lambda e: asyncio.run_coroutine_threadsafe(ctx.interaction.edit_original_message(content="Done playing", view=None), bot.loop))
+            await ctx.interaction.edit_original_message(content="Playing [{}]({})".format(title, url), view=view)
     
     except Exception as err:
         print(err)
         errorLog = open("log.txt", "w")
         errorLog.write(str(err))
         errorLog.close()
-        await ctx.send("Something went wrong")
+        await clear(ctx)
+        await ctx.followup.send("Something went wrong, please try again")
 
-@slash.slash(name='pause', description='Pauses the song')
+
+@bot.slash_command(name='pause', description='Pauses the song')
 async def pause(ctx):
     await clear(ctx)
+    view = View()
+    view.add_item(stopButton)
+    view.add_item(pauseButton)
     voice_client = ctx.guild.voice_client
     try:
         if voice_client.is_playing():
             await voice_client.pause()
     except:
-        await ctx.send("Nothing's playing lol")
-    await ctx.send("Paused")
+        await ctx.response.send_message("Nothing's playing lol")
+    await ctx.response.send_message("Paused", view=view)
 
-@slash.slash(name='resume', description='Resumes the song')
+@bot.slash_command(name='resume', description='Resumes the song')
 async def resume(ctx):
     await clear(ctx)
+    view = View()
+    view.add_item(stopButton)
+    view.add_item(pauseButton)
     voice_client = ctx.guild.voice_client
     try:
         if voice_client.is_paused():
             await voice_client.resume()
     except:
-        await ctx.send("Nothing's playing lol")
-    await ctx.send("Resumed")
+        await ctx.response.send_message("Nothing's playing lol")
+    await ctx.response.send_message("Resumed", view=view)
 
-@slash.slash(name='stop', description='Stops the song')
+@bot.slash_command(name='stop', description='Stops the song')
 async def stop(ctx):
     await clear(ctx)
     voice_client = ctx.guild.voice_client
     if voice_client.is_playing():
         voice_client.stop()
     else:
-        await ctx.send("Nothing's playing lol")
-    await ctx.send("Stopped")
+        await ctx.response.send_message("Nothing's playing lol")
+    await ctx.response.send_message("Stopped")
+
+async def pauseInter(ctx):
+    view = View()
+    view.add_item(stopButton)
+    view.add_item(pauseButton)
+    voice_client = ctx.guild.voice_client
+    if voice_client.is_playing():
+        voice_client.pause()
+        await ctx.response.edit_message(content="Paused", view=view)
+    else:
+        voice_client.resume()
+        await ctx.response.edit_message(content="Playing", view=view)
+
+async def stopInter(ctx):
+    voice_client = ctx.guild.voice_client
+    if voice_client.is_playing():
+        voice_client.stop()
+    else:
+        await ctx.response.edit_message(content="Nothing's playing lol", view=None)
+    await ctx.response.edit_message(content="Stopped", view=None)
         
-@slash.slash(name='clear', description='Clears the channel')
+@bot.slash_command(name='clear', description='Clears the channel')
 async def clearCommand(ctx):
     await clear(ctx)
-    await ctx.send("Cleared")
+    await ctx.response.send_message("Cleared")
 
 async def clear(ctx):
     if ctx.channel.id == 819991857957830717:
         await ctx.channel.purge(limit=20)
 
-@slash.slash(name="tip", description="Give me a generous tip!")
+@bot.slash_command(name="tip", description="Give me a generous tip!")
 async def tip(ctx):
-    await ctx.send("Thanks for the tip!", file = discord.File("lloyd-tip.gif"))
+    await ctx.response.send_message("Thanks for the tip!", file = discord.File("lloyd-tip.gif"))
     f = open("tips.txt", mode="r")
     lst = (f.read()).split(",")
     f.close()
@@ -179,12 +223,12 @@ async def tip(ctx):
     f.write(string)
     f.close()
 
-@slash.slash(name="score", description="Checks how many times everyone's tipped")
+@bot.slash_command(name="score", description="Checks how many times everyone's tipped")
 async def tip(ctx, *, user):
     if user == "":
-        await ctx.send("Needs a user!")
+        await ctx.response.send_message("Needs a user!")
     elif "<@!" not in user:
-        await ctx.send("That's not a user!")
+        await ctx.response.send_message("That's not a user!")
     else:
         f = open("tips.txt", mode="r")
         lst = (f.read()).split(",")
@@ -195,12 +239,16 @@ async def tip(ctx, *, user):
         print(tips)
         try:
             place = [i[0] for i in tips].index(str(user))
-            await ctx.send("{} has given me {} tips!".format(tips[place][0], tips[place][1]))
+            await ctx.response.send_message("{} has given me {} tips!".format(tips[place][0], tips[place][1]))
         except:
-            await ctx.send("{} hasn't given me any tips yet! Rude...".format(user))
+            await ctx.response.send_message("{} hasn't given me any tips yet! Rude...".format(user))
 
-@slash.slash(name="error", description="Tells you exactly how I failed")
+@bot.slash_command(name="error", description="Tells you exactly how I failed")
 async def error(ctx):
-    await ctx.send(file=discord.File("log.txt"))
+    await ctx.response.send_message(file=discord.File("log.txt"))
+
+
+stopButton.callback = stopInter
+pauseButton.callback = pauseInter
 
 bot.run("token")

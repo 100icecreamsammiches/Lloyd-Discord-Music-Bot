@@ -5,6 +5,13 @@ from discord.ext import commands
 from discord.ui import Button, View
 import youtube_dl
 import math
+import os
+from dotenv import load_dotenv
+load_dotenv()
+
+title = ""
+info = {}
+link = ""
 
 intents = discord.Intents().all()
 #client = discord.Client(intents=intents)
@@ -70,7 +77,7 @@ async def join(ctx):
         if ctx.author.voice:
             channel = ctx.author.voice.channel
             await channel.connect()
-            await ctx.response.send_message("Joined")
+            await ctx.response.send_message("Nothing's playing")
     except:
         await ctx.response.send_message("You're probably not in a VC, why would you do that?")
 
@@ -82,15 +89,15 @@ async def leave(ctx):
         await clear(ctx)
     except Exception as err:
         "idk why it breaks but i do be lazy"
-    await ctx.response.send_message("Left")
+    await ctx.response.send_message("Nothing's playing")
 
 @bot.slash_command(name='play', description='Plays a song')
-async def play(ctx, url, speed=1, timestamp=0):
+async def play(ctx, url, speed=1, timestamp=0, funifactor=0):
     await clear(ctx)
     view = View()
     view.add_item(stopButton)
     view.add_item(pauseButton)
-    await ctx.response.send_message("Preparing...", view=view)
+    await ctx.response.send_message("Preparing...", view=None)
     url = url.replace("m.youtube.com", "youtu.be").replace("watch?v=", "")
     voice_client = ctx.guild.voice_client
     speed = float(speed)
@@ -106,6 +113,7 @@ async def play(ctx, url, speed=1, timestamp=0):
     else:
         option = '-filter:a "atempo={}"'.format(speed)
 
+    option += " -af bass=g={},equalizer=frequency=100:width=10000:width_type=h:gain={}".format(funifactor,funifactor)
     if voice_client == None:
         await ctx.author.voice.channel.connect()
 
@@ -114,15 +122,18 @@ async def play(ctx, url, speed=1, timestamp=0):
         async with ctx.channel.typing():
 
             with youtube_dl.YoutubeDL(ytdl_format_options) as ydl:
+                global title, link
                 info = ydl.extract_info(url, download=False)
                 URL = info['formats'][0]['url']
                 title = info.get("title", None)
+                link = url
 
             for i in range(len(url) - 3):
                 if url[i:i+3] == "?t=":
                     timestamp = int(url[i+3:])
+
             audio = discord.FFmpegPCMAudio(source=URL, before_options='-vn -ss {} -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -threads 16'.format(timestamp), options=option)
-            voice_channel.play(audio, after=lambda e: asyncio.run_coroutine_threadsafe(ctx.interaction.edit_original_message(content="Done playing", view=None), bot.loop))
+            voice_channel.play(audio, after=lambda e: asyncio.run_coroutine_threadsafe(ctx.interaction.edit_original_message(content="Done playing", view=None), bot.loop) if e==None else asyncio.run_coroutine_threadsafe(ctx.interaction.edit_original_message(content="Something went wrong", view=None), bot.loop))
             await ctx.interaction.edit_original_message(content="Playing [{}]({})".format(title, url), view=view)
     
     except Exception as err:
@@ -130,8 +141,7 @@ async def play(ctx, url, speed=1, timestamp=0):
         errorLog = open("log.txt", "w")
         errorLog.write(str(err))
         errorLog.close()
-        await clear(ctx)
-        await ctx.followup.send("Something went wrong, please try again")
+        await ctx.interaction.edit_original_message(content="Something went wrong, please try again", view=None)
 
 
 @bot.slash_command(name='pause', description='Pauses the song')
@@ -145,7 +155,7 @@ async def pause(ctx):
         if voice_client.is_playing():
             await voice_client.pause()
     except:
-        await ctx.response.send_message("Nothing's playing lol")
+        await ctx.response.send_message("Nothing's playing")
     await ctx.response.send_message("Paused", view=view)
 
 @bot.slash_command(name='resume', description='Resumes the song')
@@ -159,8 +169,8 @@ async def resume(ctx):
         if voice_client.is_paused():
             await voice_client.resume()
     except:
-        await ctx.response.send_message("Nothing's playing lol")
-    await ctx.response.send_message("Resumed", view=view)
+        await ctx.response.send_message("Nothing's playing")
+    await ctx.response.send_message("Playing [{}]({})".format(title, link), view=view)
 
 @bot.slash_command(name='stop', description='Stops the song')
 async def stop(ctx):
@@ -169,8 +179,8 @@ async def stop(ctx):
     if voice_client.is_playing():
         voice_client.stop()
     else:
-        await ctx.response.send_message("Nothing's playing lol")
-    await ctx.response.send_message("Stopped")
+        await ctx.response.send_message("Nothing's playing")
+    await ctx.response.send_message("Nothing's playing")
 
 async def pauseInter(ctx):
     view = View()
@@ -182,20 +192,25 @@ async def pauseInter(ctx):
         await ctx.response.edit_message(content="Paused", view=view)
     else:
         voice_client.resume()
-        await ctx.response.edit_message(content="Playing", view=view)
+        await ctx.response.edit_message(content="Playing [{}]({})".format(title, link), view=view)
 
 async def stopInter(ctx):
     voice_client = ctx.guild.voice_client
     if voice_client.is_playing():
         voice_client.stop()
-    else:
-        await ctx.response.edit_message(content="Nothing's playing lol", view=None)
-    await ctx.response.edit_message(content="Stopped", view=None)
+    await asyncio.sleep(0.1)
+    await ctx.response.edit_message(content="Nothing's playing", view=None)
         
 @bot.slash_command(name='clear', description='Clears the channel')
 async def clearCommand(ctx):
     await clear(ctx)
-    await ctx.response.send_message("Cleared")
+    if ctx.guild.voice_client.is_playing():
+        view = View()
+        view.add_item(stopButton)
+        view.add_item(pauseButton)
+        await ctx.response.send_message("Playing [{}]({})".format(title, link), view=view)
+    else:
+        await ctx.response.send_message("Nothing's playing")
 
 async def clear(ctx):
     if ctx.channel.id == 819991857957830717:
@@ -224,7 +239,7 @@ async def tip(ctx):
     f.close()
 
 @bot.slash_command(name="score", description="Checks how many times everyone's tipped")
-async def tip(ctx, *, user):
+async def score(ctx, user):
     if user == "":
         await ctx.response.send_message("Needs a user!")
     elif "<@!" not in user:
@@ -247,8 +262,8 @@ async def tip(ctx, *, user):
 async def error(ctx):
     await ctx.response.send_message(file=discord.File("log.txt"))
 
-
 stopButton.callback = stopInter
 pauseButton.callback = pauseInter
 
-bot.run("token")
+
+bot.run(os.environ.get("LLOYD_TOKEN"))

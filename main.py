@@ -92,7 +92,7 @@ async def leave(ctx):
     await ctx.response.send_message("Nothing's playing")
 
 @bot.slash_command(name='play', description='Plays a song')
-async def play(ctx, url, speed=1, timestamp=0, funifactor=0):
+async def play(ctx, url, speed=1, timestamp=0, bassboost=0, wobble=0, echo=0):
     await clear(ctx)
     view = View()
     view.add_item(stopButton)
@@ -101,19 +101,29 @@ async def play(ctx, url, speed=1, timestamp=0, funifactor=0):
     url = url.replace("m.youtube.com", "youtu.be").replace("watch?v=", "")
     voice_client = ctx.guild.voice_client
     speed = float(speed)
-
+    option = "-af "
     if speed > 2:
         power = math.floor(math.log(float(speed), 2))
-        option = '-filter:a "' + ('atempo=2.0,' * power) + 'atempo={}"'.format(speed / (2**power))
+        option += ('atempo=2.0,' * power) + 'atempo={}'.format(speed / (2**power))
 
     elif speed < 0.5:
         power = math.floor(math.log(float(speed), 0.5))
-        option = '-filter:a "' + ('atempo=0.5,' * power) + 'atempo={}"'.format(speed / (0.5**power))
+        option += ('atempo=0.5,' * power) + 'atempo={}'.format(speed / (0.5**power))
         
     else:
-        option = '-filter:a "atempo={}"'.format(speed)
+        option += 'atempo={}'.format(speed)
 
-    option += " -af bass=g={},equalizer=frequency=100:width=10000:width_type=h:gain={}".format(funifactor,funifactor)
+    if bassboost != 0:
+        option += ',bass=g={},equalizer=frequency=100:width=10000:width_type=h:gain={}'.format(bassboost,bassboost)
+    
+    if wobble != 0:
+        if float(wobble) > 1:
+            option += (",vibrato=d=1" * math.floor(float(wobble))) + ",vibrato=d={}".format(float(wobble) - math.floor(float(wobble)))
+        else:
+            option += ",vibrato=d={}".format(wobble)
+
+    if echo != 0:
+        option += ",aecho=0.8:0.9:{}|{}|{}|{}:1|0.9|0.8|0.7".format(echo, echo, echo, echo)
     if voice_client == None:
         await ctx.author.voice.channel.connect()
 
@@ -133,16 +143,23 @@ async def play(ctx, url, speed=1, timestamp=0, funifactor=0):
                     timestamp = int(url[i+3:])
 
             audio = discord.FFmpegPCMAudio(source=URL, before_options='-vn -ss {} -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -threads 16'.format(timestamp), options=option)
-            voice_channel.play(audio, after=lambda e: asyncio.run_coroutine_threadsafe(ctx.interaction.edit_original_message(content="Done playing", view=None), bot.loop) if e==None else asyncio.run_coroutine_threadsafe(ctx.interaction.edit_original_message(content="Something went wrong", view=None), bot.loop))
+            voice_channel.play(audio, after=lambda e: (asyncio.run_coroutine_threadsafe(ctx.interaction.edit_original_message(content="Done playing", view=None), bot.loop)) if e==None else (asyncio.run_coroutine_threadsafe(handleError(ctx, e), bot.loop)))
             await ctx.interaction.edit_original_message(content="Playing [{}]({})".format(title, url), view=view)
     
     except Exception as err:
+        print("Error: ")
         print(err)
         errorLog = open("log.txt", "w")
         errorLog.write(str(err))
         errorLog.close()
         await ctx.interaction.edit_original_message(content="Something went wrong, please try again", view=None)
 
+async def handleError(ctx, err):
+    print(err)
+    errorLog = open("log.txt", "w")
+    errorLog.write(str(err))
+    errorLog.close()
+    await ctx.interaction.edit_original_message(content="Something went wrong, please try again", view=None)
 
 @bot.slash_command(name='pause', description='Pauses the song')
 async def pause(ctx):
@@ -178,8 +195,6 @@ async def stop(ctx):
     voice_client = ctx.guild.voice_client
     if voice_client.is_playing():
         voice_client.stop()
-    else:
-        await ctx.response.send_message("Nothing's playing")
     await ctx.response.send_message("Nothing's playing")
 
 async def pauseInter(ctx):
@@ -198,7 +213,7 @@ async def stopInter(ctx):
     voice_client = ctx.guild.voice_client
     if voice_client.is_playing():
         voice_client.stop()
-    await asyncio.sleep(0.1)
+    await asyncio.sleep(0.2)
     await ctx.response.edit_message(content="Nothing's playing", view=None)
         
 @bot.slash_command(name='clear', description='Clears the channel')
@@ -210,7 +225,7 @@ async def clearCommand(ctx):
         view.add_item(pauseButton)
         await ctx.response.send_message("Playing [{}]({})".format(title, link), view=view)
     else:
-        await ctx.response.send_message("Nothing's playing")
+        await ctx.response.send_message("Nothing's playing", view=None)
 
 async def clear(ctx):
     if ctx.channel.id == 819991857957830717:

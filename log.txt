@@ -1,2 +1,1 @@
-[0;31mERROR:[0m Sign in to confirm your age
-This video may be inappropriate for some users.
+404 Not Found (error code: 10008): Unknown Message

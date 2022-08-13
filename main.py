@@ -15,7 +15,9 @@ link = ""
 
 intents = discord.Intents().all()
 #client = discord.Client(intents=intents)
-bot = commands.Bot(command_prefix='.',intents=intents)
+bot = commands.Bot(command_prefix='.', intents=intents)
+
+playlist = []
 
 youtube_dl.utils.bug_reports_message = lambda: ''
 
@@ -93,13 +95,18 @@ async def leave(ctx):
 
 @bot.slash_command(name='play', description='Plays a song')
 async def play(ctx, url, speed=1, timestamp=0, bassboost=0, wobble=0, echo=0):
-    await clear(ctx)
     view = View()
     view.add_item(stopButton)
     view.add_item(pauseButton)
-    await ctx.response.send_message("Preparing...", view=None)
     url = url.replace("m.youtube.com", "youtu.be").replace("watch?v=", "")
+    
     voice_client = ctx.guild.voice_client
+
+    if voice_client == None:
+        await ctx.author.voice.channel.connect()
+
+    voice_client = ctx.guild.voice_client
+
     speed = float(speed)
     option = "-af "
     if speed > 2:
@@ -123,43 +130,80 @@ async def play(ctx, url, speed=1, timestamp=0, bassboost=0, wobble=0, echo=0):
             option += ",vibrato=d={}".format(wobble)
 
     if echo != 0:
-        option += ",aecho=0.8:0.9:{}|{}|{}|{}:1|0.9|0.8|0.7".format(echo, echo, echo, echo)
-    if voice_client == None:
-        await ctx.author.voice.channel.connect()
-
-    try:
-        voice_channel = ctx.guild.voice_client
-        async with ctx.channel.typing():
-
-            with youtube_dl.YoutubeDL(ytdl_format_options) as ydl:
-                global title, link
-                info = ydl.extract_info(url, download=False)
-                URL = info['formats'][0]['url']
-                title = info.get("title", None)
-                link = url
-
-            for i in range(len(url) - 3):
-                if url[i:i+3] == "?t=":
-                    timestamp = int(url[i+3:])
-
-            audio = discord.FFmpegPCMAudio(source=URL, before_options='-vn -ss {} -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -threads 16'.format(timestamp), options=option)
-            voice_channel.play(audio, after=lambda e: (asyncio.run_coroutine_threadsafe(ctx.interaction.edit_original_message(content="Done playing", view=None), bot.loop)) if e==None else (asyncio.run_coroutine_threadsafe(handleError(ctx, e), bot.loop)))
-            await ctx.interaction.edit_original_message(content="Playing [{}]({})".format(title, url), view=view)
+        option += ",aecho=0.8:0.9:{}|{}|{}|{}:0.3|0.25|0.2|0.15".format(echo, echo, echo, echo)
     
-    except Exception as err:
-        print("Error: ")
+    if not voice_client.is_playing():
+        try:
+            await clear(ctx)
+            await ctx.response.send_message("Preparing...", view=None)
+            voice_channel = ctx.guild.voice_client
+            async with ctx.channel.typing():
+
+                with youtube_dl.YoutubeDL(ytdl_format_options) as ydl:
+                    global title, link
+                    info = ydl.extract_info(url, download=False)
+                    URL = info['formats'][0]['url']
+                    title = info.get("title", None)
+                    link = url
+
+                for i in range(len(url) - 3):
+                    if url[i:i+3] == "?t=":
+                        timestamp = int(url[i+3:])
+
+                audio = discord.FFmpegPCMAudio(source=URL, before_options='-vn -ss {} -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -threads 16'.format(timestamp), options=option)
+                voice_channel.play(audio, after=lambda error: (asyncio.run_coroutine_threadsafe(HandleEnd(error, ctx), bot.loop)))
+                await ctx.interaction.edit_original_message(content="Playing [{}]({})".format(title, url), view=view)
+        
+        except Exception as err:
+            print(err)
+            errorLog = open("log.txt", "w")
+            errorLog.write(str(err))
+            errorLog.close()
+            await ctx.interaction.edit_original_message(content="Something went wrong, please try again", view=None)
+    
+    else:
+        playlist.append([url, option])
+        msg = await ctx.response.send_message("Preparing...", view=None)
+        await msg.delete_original_message()
+
+async def HandleEnd(err, ctx):
+    if err == None:
+        if len(playlist) > 0:
+            try:
+                timestamp = 0
+                voice_channel = ctx.guild.voice_client
+                url = playlist[0][0]
+                option = playlist[0][1]
+                playlist.pop(0)
+                view = View()
+                view.add_item(stopButton)
+                view.add_item(pauseButton)
+                async with ctx.channel.typing():
+                    with youtube_dl.YoutubeDL(ytdl_format_options) as ydl:
+                        global title, link
+                        info = ydl.extract_info(url, download=False)
+                        URL = info['formats'][0]['url']
+                        title = info.get("title", None)
+                        link = url
+
+                    for i in range(len(url) - 3):
+                        if url[i:i+3] == "?t=":
+                            timestamp = int(url[i+3:])
+
+                    audio = discord.FFmpegPCMAudio(source=URL, before_options='-vn -ss {} -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -threads 16'.format(timestamp), options=option)
+
+                    voice_channel.play(audio, after=lambda error: (asyncio.run_coroutine_threadsafe(HandleEnd(error, ctx), bot.loop)))
+                    await ctx.interaction.edit_original_message(content="Playing [{}]({})".format(title, url), view=view)
+            except Exception as err:
+                print("error: {}".format(err))
+        else:
+            await ctx.interaction.edit_original_message(content="Done playing", view=None)
+    else:
         print(err)
         errorLog = open("log.txt", "w")
         errorLog.write(str(err))
         errorLog.close()
         await ctx.interaction.edit_original_message(content="Something went wrong, please try again", view=None)
-
-async def handleError(ctx, err):
-    print(err)
-    errorLog = open("log.txt", "w")
-    errorLog.write(str(err))
-    errorLog.close()
-    await ctx.interaction.edit_original_message(content="Something went wrong, please try again", view=None)
 
 @bot.slash_command(name='pause', description='Pauses the song')
 async def pause(ctx):
@@ -213,7 +257,6 @@ async def stopInter(ctx):
     voice_client = ctx.guild.voice_client
     if voice_client.is_playing():
         voice_client.stop()
-    await asyncio.sleep(0.2)
     await ctx.response.edit_message(content="Nothing's playing", view=None)
         
 @bot.slash_command(name='clear', description='Clears the channel')

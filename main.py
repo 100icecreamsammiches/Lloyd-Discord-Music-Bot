@@ -161,7 +161,7 @@ async def play(ctx, url, speed=1, timestamp=0, bassboost=0, wobble=0, echo=0):
 
                 audio = discord.FFmpegPCMAudio(source=URL, before_options='-vn -ss {} -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -threads 16 -loglevel error'.format(timestamp), options=option)
                 voice_channel.play(audio, after=lambda error: (asyncio.run_coroutine_threadsafe(HandleEnd(error, ctx), bot.loop)))
-                await ctx.interaction.edit_original_message(content="Playing [{}]({})".format(title, url), view=view)
+                await ctx.interaction.edit_original_message(content="Playing [{}]({}) (Looping)".format(title, url) if looping else "Playing [{}]({})".format(title, url), view=view)
         
         except Exception as err:
             print(err)
@@ -175,6 +175,7 @@ async def play(ctx, url, speed=1, timestamp=0, bassboost=0, wobble=0, echo=0):
         await msg.delete_original_message()
 
 async def HandleEnd(err, ctx):
+    print(err)
     global looping
     global place
     if err == None:
@@ -210,7 +211,7 @@ async def HandleEnd(err, ctx):
                     audio = discord.FFmpegPCMAudio(source=URL, before_options='-vn -ss {} -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -threads 16 -loglevel error'.format(timestamp), options=option)
 
                     voice_channel.play(audio, after=lambda error: (asyncio.run_coroutine_threadsafe(HandleEnd(error, ctx), bot.loop)))
-                    await ctx.interaction.edit_original_message(content="Playing [{}]({})".format(title, url), view=view)
+                    await ctx.interaction.edit_original_message(content="Playing [{}]({}) (Looping)".format(title, url) if looping else "Playing [{}]({})".format(title, url), view=view)
             except Exception as err:
                 print("error: {}".format(err))
         else:
@@ -255,11 +256,12 @@ async def resume(ctx):
 @bot.slash_command(name='stop', description='Stops the song')
 async def stop(ctx):
     await clear(ctx)
+    global looping, playlist
+    looping = False
+    playlist = []
     voice_client = ctx.guild.voice_client
     if voice_client.is_playing():
         voice_client.stop()
-    global looping
-    looping = False
     await ctx.response.send_message("Nothing's playing")
 
 async def pauseInter(ctx):
@@ -276,11 +278,12 @@ async def pauseInter(ctx):
         await ctx.response.edit_message(content="Playing [{}]({})".format(title, link), view=view)
 
 async def stopInter(ctx):
+    global looping, playlist
+    looping = False
+    playlist = []
     voice_client = ctx.guild.voice_client
     if voice_client.is_playing():
         voice_client.stop()
-    global looping
-    looping = False
     await ctx.response.edit_message(content="Nothing's playing", view=None)
 
 async def loopInter(ctx):
@@ -293,7 +296,7 @@ async def loopInter(ctx):
     looping = not looping
     if not looping:
         place = 0
-    await ctx.response.edit_message(content="Playing [{}]({})".format(title, link), view=view)
+    await ctx.response.edit_message(content="Playing [{}]({}) (Looping)".format(title, link) if looping else "Playing [{}]({})".format(title, link), view=view)
 
 @bot.slash_command(name="loop", description="Toggles looping the playlist")
 async def loopCommand(ctx):
@@ -305,7 +308,7 @@ async def loopCommand(ctx):
     looping = not looping
     if not looping:
         place = 0
-    await ctx.response.send_message(content="Playing [{}]({})".format(title, link), view=view)
+    await ctx.response.send_message(content="Playing [{}]({}) (Looping)".format(title, link) if looping else "Playing [{}]({})".format(title, link), view=view)
 
 @bot.slash_command(name='clear', description='Clears the channel')
 async def clearCommand(ctx):

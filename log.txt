@@ -1,1 +1,1 @@
-Not connected to voice.
+404 Not Found (error code: 10008): Unknown Message

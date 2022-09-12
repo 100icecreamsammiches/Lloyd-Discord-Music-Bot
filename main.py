@@ -138,7 +138,13 @@ async def play(ctx, url, speed=1, timestamp=0, bassboost=0, wobble=0, echo=0):
             option += ",vibrato=d={}".format(wobble)
 
     if echo != 0:
-        option += ",aecho=0.8:0.9:{}|{}|{}|{}:0.3|0.275|0.25|0.225".format(echo, echo, echo, echo)
+        echo = int(echo)
+        echostring = ",aecho=0.8:0.9:"
+        for i in range(1, echo + 1):
+            echostring += str(1000 * i) + "|"
+        echostring = echostring[:-1:] + ":"
+        echostring += "0.3|" * echo
+        option += echostring[:-1:]
     
     playlist.append([url, option])
     if not voice_client.is_playing():
@@ -175,9 +181,9 @@ async def play(ctx, url, speed=1, timestamp=0, bassboost=0, wobble=0, echo=0):
         await msg.delete_original_message()
 
 async def HandleEnd(err, ctx):
-    print(err)
     global looping
     global place
+    global playlist
     if err == None:
         if looping:
             if place < len(playlist) - 1:

@@ -1,6 +1,5 @@
 import discord
 import asyncio
-from discord.enums import try_enum
 from discord.ext import commands
 from discord.ui import Button, View
 import youtube_dl
@@ -15,16 +14,16 @@ link = ""
 looping = False
 place = 0
 
-intents = discord.Intents().all()
-#client = discord.Client(intents=intents)
-bot = commands.Bot(command_prefix='.', intents=intents)
+intents = discord.Intents.all()
+client = discord.Client(intents=intents)
+bot = discord.ext.commands.Bot(command_prefix='.', intents=intents)
 
 playlist = []
 
 youtube_dl.utils.bug_reports_message = lambda: ''
 
 ytdl_format_options = {
-    'format': 'bestaudio/best',
+    'format': 'best',
     'restrictfilenames': True,
     'noplaylist': True,
     'nocheckcertificate': True,
@@ -100,13 +99,26 @@ async def leave(ctx):
         "idk why it breaks but i do be lazy"
     await ctx.response.send_message("Nothing's playing")
 
+async def prepare_audio(url, option, timestamp=0):
+    with youtube_dl.YoutubeDL(ytdl_format_options) as ydl:
+        global title, link
+        info = ydl.extract_info(url, download=False)
+        URL = info['formats'][0]['url']
+        title = info.get("title", None)
+        link = url
+
+    for i in range(len(url) - 2):
+        if url[i:i+2] == "t=":
+            timestamp = int(url[i+2:])
+
+    return discord.FFmpegPCMAudio(source=URL, before_options='-vn -ss {} -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -threads 16 -loglevel error'.format(timestamp), options=option)
+
 @bot.slash_command(name='play', description='Plays a song')
 async def play(ctx, url, speed=1, timestamp=0, bassboost=0, wobble=0, echo=0):
     view = View()
     view.add_item(stopButton)
     view.add_item(pauseButton)
     view.add_item(loopButton)
-    url = url.replace("m.youtube.com", "youtu.be").replace("watch?v=", "")
     
     voice_client = ctx.guild.voice_client
 
@@ -153,20 +165,7 @@ async def play(ctx, url, speed=1, timestamp=0, bassboost=0, wobble=0, echo=0):
             await ctx.response.send_message("Preparing...", view=None)
             voice_channel = ctx.guild.voice_client
             async with ctx.channel.typing():
-
-                with youtube_dl.YoutubeDL(ytdl_format_options) as ydl:
-                    global title, link
-                    info = ydl.extract_info(url, download=False)
-                    URL = info['formats'][0]['url']
-                    title = info.get("title", None)
-                    link = url
-
-                for i in range(len(url) - 3):
-                    if url[i:i+3] == "?t=":
-                        timestamp = int(url[i+3:])
-
-                audio = discord.FFmpegPCMAudio(source=URL, before_options='-vn -ss {} -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -threads 16 -loglevel error'.format(timestamp), options=option)
-                voice_channel.play(audio, after=lambda error: (asyncio.run_coroutine_threadsafe(HandleEnd(error, ctx), bot.loop)))
+                voice_channel.play(await prepare_audio(url, option, timestamp), after=lambda error: (asyncio.run_coroutine_threadsafe(HandleEnd(error, ctx), bot.loop)))
                 await ctx.interaction.edit_original_message(content="Playing [{}]({}) (Looping)".format(title, url) if looping else "Playing [{}]({})".format(title, url), view=view)
         
         except Exception as err:
@@ -203,20 +202,7 @@ async def HandleEnd(err, ctx):
                 view.add_item(pauseButton)
                 view.add_item(loopButton)
                 async with ctx.channel.typing():
-                    with youtube_dl.YoutubeDL(ytdl_format_options) as ydl:
-                        global title, link
-                        info = ydl.extract_info(url, download=False)
-                        URL = info['formats'][0]['url']
-                        title = info.get("title", None)
-                        link = url
-
-                    for i in range(len(url) - 3):
-                        if url[i:i+3] == "?t=":
-                            timestamp = int(url[i+3:])
-
-                    audio = discord.FFmpegPCMAudio(source=URL, before_options='-vn -ss {} -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -threads 16 -loglevel error'.format(timestamp), options=option)
-
-                    voice_channel.play(audio, after=lambda error: (asyncio.run_coroutine_threadsafe(HandleEnd(error, ctx), bot.loop)))
+                    voice_channel.play(await prepare_audio(url, option, timestamp), after=lambda error: (asyncio.run_coroutine_threadsafe(HandleEnd(error, ctx), bot.loop)))
                     await ctx.interaction.edit_original_message(content="Playing [{}]({}) (Looping)".format(title, url) if looping else "Playing [{}]({})".format(title, url), view=view)
             except Exception as err:
                 print("error: {}".format(err))

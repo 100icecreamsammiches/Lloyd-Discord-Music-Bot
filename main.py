@@ -109,7 +109,10 @@ async def prepare_audio(url, option, timestamp=0):
 
     for i in range(len(url) - 2):
         if url[i:i+2] == "t=":
-            timestamp = int(url[i+2:])
+            timestamp = url[i+2:]
+            if "s" in timestamp:
+                timestamp = timestamp[:-1:]
+            timestamp = int(timestamp)
 
     return discord.FFmpegPCMAudio(source=URL, before_options='-vn -ss {} -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -threads 16 -loglevel error'.format(timestamp), options=option)
 

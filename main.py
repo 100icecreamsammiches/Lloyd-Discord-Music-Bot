@@ -2,7 +2,7 @@ import discord
 import asyncio
 from discord.ext import commands
 from discord.ui import Button, View
-import youtube_dl
+import yt_dlp as youtube_dl
 import math
 import os
 from dotenv import load_dotenv
@@ -103,7 +103,7 @@ async def prepare_audio(url, option, timestamp=0):
     with youtube_dl.YoutubeDL(ytdl_format_options) as ydl:
         global title, link
         info = ydl.extract_info(url, download=False)
-        URL = info['formats'][0]['url']
+        URL = info['url']
         title = info.get("title", None)
         link = url
 

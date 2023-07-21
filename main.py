@@ -6,6 +6,7 @@ import yt_dlp as youtube_dl
 import math
 import os
 from dotenv import load_dotenv
+import time
 load_dotenv()
 
 title = ""
@@ -13,6 +14,7 @@ info = {}
 link = ""
 looping = False
 place = 0
+timer = 99999999
 
 intents = discord.Intents.all()
 client = discord.Client(intents=intents)
@@ -111,7 +113,7 @@ async def prepare_audio(url, option, timestamp=0):
         if url[i:i+2] == "t=":
             timestamp = url[i+2:]
             if "s" in timestamp:
-                timestamp = timestamp[:-1:]
+                timestamp = timestamp[:timestamp.index("s"):]
             timestamp = int(timestamp)
 
     return discord.FFmpegPCMAudio(source=URL, before_options='-vn -ss {} -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -threads 16 -loglevel error'.format(timestamp), options=option)
@@ -127,8 +129,7 @@ async def play(ctx, url, speed=1, timestamp=0, bassboost=0, wobble=0, echo=0):
 
     if voice_client == None:
         await ctx.author.voice.channel.connect()
-
-    voice_client = ctx.guild.voice_client
+        voice_client = ctx.guild.voice_client
 
     speed = float(speed)
     option = "-af "
@@ -169,23 +170,27 @@ async def play(ctx, url, speed=1, timestamp=0, bassboost=0, wobble=0, echo=0):
             voice_channel = ctx.guild.voice_client
             async with ctx.channel.typing():
                 voice_channel.play(await prepare_audio(url, option, timestamp), after=lambda error: (asyncio.run_coroutine_threadsafe(HandleEnd(error, ctx), bot.loop)))
-                await ctx.interaction.edit_original_message(content="Playing [{}]({}) (Looping)".format(title, url) if looping else "Playing [{}]({})".format(title, url), view=view)
+                print("Playing {}".format(title))
+                await ctx.interaction.edit_original_response(content="Playing [{}]({}) (Looping)".format(title, url) if looping else "Playing [{}]({})".format(title, url), view=view)
         
         except Exception as err:
             print(err)
             errorLog = open("log.txt", "w")
             errorLog.write(str(err))
             errorLog.close()
-            await ctx.interaction.edit_original_message(content="Something went wrong, please try again", view=None)
+            await ctx.interaction.edit_original_response(content="Something went wrong, please try again", view=None)
     
     else:
         msg = await ctx.response.send_message("Preparing...", view=None)
         await msg.delete_original_message()
 
 async def HandleEnd(err, ctx):
+    global timer
     global looping
     global place
     global playlist
+    timer = time.time() + 15*60
+    asyncio.run_coroutine_threadsafe(timeout(ctx), bot.loop)
     if err == None:
         if looping:
             if place < len(playlist) - 1:
@@ -206,17 +211,17 @@ async def HandleEnd(err, ctx):
                 view.add_item(loopButton)
                 async with ctx.channel.typing():
                     voice_channel.play(await prepare_audio(url, option, timestamp), after=lambda error: (asyncio.run_coroutine_threadsafe(HandleEnd(error, ctx), bot.loop)))
-                    await ctx.interaction.edit_original_message(content="Playing [{}]({}) (Looping)".format(title, url) if looping else "Playing [{}]({})".format(title, url), view=view)
+                    await ctx.interaction.edit_original_response(content="Playing [{}]({}) (Looping)".format(title, url) if looping else "Playing [{}]({})".format(title, url), view=view)
             except Exception as err:
                 print("error: {}".format(err))
         else:
-            await ctx.interaction.edit_original_message(content="Done playing", view=None)
+            await ctx.interaction.edit_original_response(content="Done playing", view=None)
     else:
         print(err)
         errorLog = open("log.txt", "w")
         errorLog.write(str(err))
         errorLog.close()
-        await ctx.interaction.edit_original_message(content="Something went wrong, please try again", view=None)
+        await ctx.interaction.edit_original_response(content="Something went wrong, please try again", view=None)
 
 @bot.slash_command(name='pause', description='Pauses the song')
 async def pause(ctx):
@@ -366,6 +371,15 @@ async def score(ctx, user):
 @bot.slash_command(name="error", description="Tells you exactly how I failed")
 async def error(ctx):
     await ctx.response.send_message(file=discord.File("log.txt"))
+
+async def timeout(ctx):
+    global timer
+    while time.time() < timer:
+        await asyncio.sleep(1)
+    try:
+        await ctx.voice_client.disconnect()
+    except Exception as e:
+        print(e)
 
 stopButton.callback = stopInter
 pauseButton.callback = pauseInter

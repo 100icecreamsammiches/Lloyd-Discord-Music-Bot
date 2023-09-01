@@ -14,7 +14,7 @@ info = {}
 link = ""
 looping = False
 place = 0
-timer = 99999999
+timer = 9999999999
 
 intents = discord.Intents.all()
 client = discord.Client(intents=intents)
@@ -102,6 +102,8 @@ async def leave(ctx):
     await ctx.response.send_message("Nothing's playing")
 
 async def prepare_audio(url, option, timestamp=0):
+    global timer
+    timer = 9999999999
     with youtube_dl.YoutubeDL(ytdl_format_options) as ydl:
         global title, link
         info = ydl.extract_info(url, download=False)
@@ -132,7 +134,7 @@ async def play(ctx, url, speed=1, timestamp=0, bassboost=0, wobble=0, echo=0):
         voice_client = ctx.guild.voice_client
 
     speed = float(speed)
-    option = "-af "
+    option = "-af -vn"
     if speed > 2:
         power = math.floor(math.log(float(speed), 2))
         option += ('atempo=2.0,' * power) + 'atempo={}'.format(speed / (2**power))

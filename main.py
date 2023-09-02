@@ -134,7 +134,7 @@ async def play(ctx, url, speed=1, timestamp=0, bassboost=0, wobble=0, echo=0):
         voice_client = ctx.guild.voice_client
 
     speed = float(speed)
-    option = "-af -vn"
+    option = "-af "
     if speed > 2:
         power = math.floor(math.log(float(speed), 2))
         option += ('atempo=2.0,' * power) + 'atempo={}'.format(speed / (2**power))

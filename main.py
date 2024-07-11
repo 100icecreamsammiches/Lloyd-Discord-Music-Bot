@@ -7,6 +7,7 @@ import math
 import os
 from dotenv import load_dotenv
 import time
+import datetime
 load_dotenv()
 
 title = ""
@@ -52,6 +53,7 @@ class YTDLSource(discord.PCMVolumeTransformer):
 
     @classmethod
     async def from_url(cls, url, *, loop=None, stream=False):
+        ytdl.cache.remove()
         loop = loop or asyncio.get_event_loop()
         data = await loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=not stream))
         if 'entries' in data:
@@ -82,24 +84,24 @@ loopButton = Button(
 
 @bot.slash_command(name='join', description='Tells Lloyd to join the voice channel')
 async def join(ctx):
-    await clear(ctx)
     try:
         if ctx.author.voice:
             channel = ctx.author.voice.channel
             await channel.connect()
             await ctx.response.send_message("Nothing's playing")
     except:
-        await ctx.response.send_message("You're probably not in a VC, why would you do that?")
+        pass
+        # await ctx.response.send_message("You're probably not in a VC, why would you do that?")
+    await clear(ctx)
 
 @bot.slash_command(name='leave', description='Tells Lloyd to leave the voice channel')
 async def leave(ctx):
-    await clear(ctx)
     try:
         await ctx.voice_client.disconnect()
-        await clear(ctx)
     except Exception as err:
         "idk why it breaks but i do be lazy"
     await ctx.response.send_message("Nothing's playing")
+    await clear(ctx)
 
 async def prepare_audio(url, option, timestamp=0):
     global timer
@@ -167,8 +169,8 @@ async def play(ctx, url, speed=1, timestamp=0, bassboost=0, wobble=0, echo=0):
     playlist.append([url, option])
     if not voice_client.is_playing():
         try:
-            await clear(ctx)
             await ctx.response.send_message("Preparing...", view=None)
+            await clear(ctx)
             voice_channel = ctx.guild.voice_client
             async with ctx.channel.typing():
                 voice_channel.play(await prepare_audio(url, option, timestamp), after=lambda error: (asyncio.run_coroutine_threadsafe(HandleEnd(error, ctx), bot.loop)))
@@ -181,17 +183,19 @@ async def play(ctx, url, speed=1, timestamp=0, bassboost=0, wobble=0, echo=0):
             errorLog.write(str(err))
             errorLog.close()
             await ctx.interaction.edit_original_response(content="Something went wrong, please try again", view=None)
+            await clear(ctx)
     
     else:
         msg = await ctx.response.send_message("Preparing...", view=None)
-        await msg.delete_original_message()
+        await clear(ctx)
+        # await msg.delete_original_message()
 
 async def HandleEnd(err, ctx):
     global timer
     global looping
     global place
     global playlist
-    timer = time.time() + 15*60
+    timer = time.time() + 60*60
     asyncio.run_coroutine_threadsafe(timeout(ctx), bot.loop)
     if err == None:
         if looping:
@@ -227,7 +231,6 @@ async def HandleEnd(err, ctx):
 
 @bot.slash_command(name='pause', description='Pauses the song')
 async def pause(ctx):
-    await clear(ctx)
     view = View()
     view.add_item(stopButton)
     view.add_item(pauseButton)
@@ -239,10 +242,10 @@ async def pause(ctx):
     except:
         await ctx.response.send_message("Nothing's playing")
     await ctx.response.send_message("Paused", view=view)
+    await clear(ctx)
 
 @bot.slash_command(name='resume', description='Resumes the song')
 async def resume(ctx):
-    await clear(ctx)
     view = View()
     view.add_item(stopButton)
     view.add_item(pauseButton)
@@ -254,10 +257,10 @@ async def resume(ctx):
     except:
         await ctx.response.send_message("Nothing's playing")
     await ctx.response.send_message("Playing [{}]({})".format(title, link), view=view)
+    await clear(ctx)
 
 @bot.slash_command(name='stop', description='Stops the song')
 async def stop(ctx):
-    await clear(ctx)
     global looping, playlist
     looping = False
     playlist = []
@@ -265,6 +268,7 @@ async def stop(ctx):
     if voice_client.is_playing():
         voice_client.stop()
     await ctx.response.send_message("Nothing's playing")
+    await clear(ctx)
 
 async def pauseInter(ctx):
     view = View()
@@ -302,7 +306,7 @@ async def loopInter(ctx):
 
 @bot.slash_command(name="loop", description="Toggles looping the playlist")
 async def loopCommand(ctx):
-    await clear(ctx)
+    global place
     view = View()
     view.add_item(stopButton)
     view.add_item(pauseButton)
@@ -311,22 +315,27 @@ async def loopCommand(ctx):
     if not looping:
         place = 0
     await ctx.response.send_message(content="Playing [{}]({}) (Looping)".format(title, link) if looping else "Playing [{}]({})".format(title, link), view=view)
+    await clear(ctx)
 
 @bot.slash_command(name='clear', description='Clears the channel')
 async def clearCommand(ctx):
-    await clear(ctx)
-    if ctx.guild.voice_client.is_playing():
-        view = View()
-        view.add_item(stopButton)
-        view.add_item(pauseButton)
-        view.add_item(loopButton)
-        await ctx.response.send_message("Playing [{}]({})".format(title, link), view=view)
-    else:
+    try:
+        if ctx.guild.voice_client.is_playing():
+            view = View()
+            view.add_item(stopButton)
+            view.add_item(pauseButton)
+            view.add_item(loopButton)
+            await ctx.response.send_message("Playing [{}]({})".format(title, link), view=view)
+        else:
+            await ctx.response.send_message("Nothing's playing", view=None)
+    except:
         await ctx.response.send_message("Nothing's playing", view=None)
+    await clear(ctx)
 
 async def clear(ctx):
     if ctx.channel.id == 819991857957830717:
-        await ctx.channel.purge(limit=20)
+        # await ctx.channel.purge(limit=20, before=datetime.datetime.now() - datetime.timedelta(seconds=2))
+        await ctx.channel.purge(limit=1, oldest_first=True)
 
 @bot.slash_command(name="tip", description="Give me a generous tip!")
 async def tip(ctx):

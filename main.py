@@ -8,6 +8,7 @@ import os
 from dotenv import load_dotenv
 import time
 import datetime
+import traceback
 load_dotenv()
 
 title = ""
@@ -16,6 +17,7 @@ link = ""
 looping = False
 place = 0
 timer = 9999999999
+max_timer = 60*60
 
 intents = discord.Intents.all()
 client = discord.Client(intents=intents)
@@ -26,15 +28,15 @@ playlist = []
 youtube_dl.utils.bug_reports_message = lambda: ''
 
 ytdl_format_options = {
-    'format': 'best',
+    'format': 'bestaudio',
     'restrictfilenames': True,
-    'noplaylist': True,
+    'no-playlist': True,
     'nocheckcertificate': True,
-    'ignoreerrors': False,
+    'ignoreerrors': True,
     'logtostderr': False,
     'quiet': True,
     'no_warnings': True,
-    'default_search': 'auto',
+    'default_search': 'ytsearch',
     'source_address': '0.0.0.0' # bind to ipv4 since ipv6 addresses cause issues sometimes
 }
 
@@ -63,9 +65,14 @@ class YTDLSource(discord.PCMVolumeTransformer):
         return filename
     
 
+status = None
 @bot.event
 async def on_ready():
+    global status
     print('Logged in as {0.user}'.format(bot))
+    status = await bot.get_channel(819991857957830717).send("Lloyd Started!", view=None)
+    await clear_by_id(819991857957830717)
+
 
 stopButton = Button(
     style=discord.ButtonStyle.primary,
@@ -84,24 +91,26 @@ loopButton = Button(
 
 @bot.slash_command(name='join', description='Tells Lloyd to join the voice channel')
 async def join(ctx):
+    await ctx.response.send_message("Joining...")
     try:
         if ctx.author.voice:
             channel = ctx.author.voice.channel
             await channel.connect()
-            await ctx.response.send_message("Nothing's playing")
     except:
         pass
         # await ctx.response.send_message("You're probably not in a VC, why would you do that?")
+    await status.edit("Nothing's playing.")
     await clear(ctx)
 
 @bot.slash_command(name='leave', description='Tells Lloyd to leave the voice channel')
 async def leave(ctx):
+    await ctx.response.send_message("Leaving...")
     try:
-        await ctx.voice_client.disconnect()
+        await ctx.guild.voice_client.disconnect()
     except Exception as err:
-        "idk why it breaks but i do be lazy"
-    await ctx.response.send_message("Nothing's playing")
+        print(err)
     await clear(ctx)
+    await status.edit("I'm not in a VC right now.", view=None)
 
 async def prepare_audio(url, option, timestamp=0):
     global timer
@@ -109,9 +118,13 @@ async def prepare_audio(url, option, timestamp=0):
     with youtube_dl.YoutubeDL(ytdl_format_options) as ydl:
         global title, link
         info = ydl.extract_info(url, download=False)
+        if 'entries' in info:
+            # take first item from a playlist
+            info = info['entries'][0]
+        # print(info.keys())
         URL = info['url']
         title = info.get("title", None)
-        link = url
+        link = info['webpage_url']
 
     for i in range(len(url) - 2):
         if url[i:i+2] == "t=":
@@ -119,7 +132,6 @@ async def prepare_audio(url, option, timestamp=0):
             if "s" in timestamp:
                 timestamp = timestamp[:timestamp.index("s"):]
             timestamp = int(timestamp)
-
     return discord.FFmpegPCMAudio(source=URL, before_options='-vn -ss {} -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -threads 16 -loglevel error'.format(timestamp), options=option)
 
 @bot.slash_command(name='play', description='Plays a song')
@@ -129,11 +141,11 @@ async def play(ctx, url, speed=1, timestamp=0, bassboost=0, wobble=0, echo=0):
     view.add_item(pauseButton)
     view.add_item(loopButton)
     
-    voice_client = ctx.guild.voice_client
+    voice_channel = ctx.guild.voice_client
 
-    if voice_client == None:
+    if voice_channel == None:
         await ctx.author.voice.channel.connect()
-        voice_client = ctx.guild.voice_client
+        voice_channel = ctx.guild.voice_client
 
     speed = float(speed)
     option = "-af "
@@ -167,26 +179,31 @@ async def play(ctx, url, speed=1, timestamp=0, bassboost=0, wobble=0, echo=0):
         option += echostring[:-1:]
     
     playlist.append([url, option])
-    if not voice_client.is_playing():
+    if not ("/" in url and "." in url):
+        url = "ytsearch:'{}'".format(url)
+    if not voice_channel.is_playing():
         try:
             await ctx.response.send_message("Preparing...", view=None)
-            await clear(ctx)
-            voice_channel = ctx.guild.voice_client
             async with ctx.channel.typing():
                 voice_channel.play(await prepare_audio(url, option, timestamp), after=lambda error: (asyncio.run_coroutine_threadsafe(HandleEnd(error, ctx), bot.loop)))
                 print("Playing {}".format(title))
-                await ctx.interaction.edit_original_response(content="Playing [{}]({}) (Looping)".format(title, url) if looping else "Playing [{}]({})".format(title, url), view=view)
+                # if "ytsearch" in url:
+                #     await status.edit(content="Playing {} (Looping)".format(title) if looping else "Playing {}".format(title, url), view=view)
+                # else:
+                await status.edit(content="Playing [{}]({}) (Looping)".format(title, link) if looping else "Playing [{}]({})".format(title, link), view=view)
+                await clear(ctx)
         
         except Exception as err:
+            print(traceback.format_exc())
             print(err)
             errorLog = open("log.txt", "w")
             errorLog.write(str(err))
             errorLog.close()
-            await ctx.interaction.edit_original_response(content="Something went wrong, please try again", view=None)
+            await status.edit(content="Something went wrong, please try again", view=None)
             await clear(ctx)
     
     else:
-        msg = await ctx.response.send_message("Preparing...", view=None)
+        msg = await ctx.response.send_message("Added to playlist!", view=None)
         await clear(ctx)
         # await msg.delete_original_message()
 
@@ -195,7 +212,7 @@ async def HandleEnd(err, ctx):
     global looping
     global place
     global playlist
-    timer = time.time() + 60*60
+    timer = max_timer
     asyncio.run_coroutine_threadsafe(timeout(ctx), bot.loop)
     if err == None:
         if looping:
@@ -217,20 +234,21 @@ async def HandleEnd(err, ctx):
                 view.add_item(loopButton)
                 async with ctx.channel.typing():
                     voice_channel.play(await prepare_audio(url, option, timestamp), after=lambda error: (asyncio.run_coroutine_threadsafe(HandleEnd(error, ctx), bot.loop)))
-                    await ctx.interaction.edit_original_response(content="Playing [{}]({}) (Looping)".format(title, url) if looping else "Playing [{}]({})".format(title, url), view=view)
+                    await status.edit(content="Playing [{}]({}) (Looping)".format(title, url) if looping else "Playing [{}]({})".format(title, url), view=view)
             except Exception as err:
                 print("error: {}".format(err))
         else:
-            await ctx.interaction.edit_original_response(content="Done playing", view=None)
+            await status.edit(content="Nothing's playing.", view=None)
     else:
         print(err)
         errorLog = open("log.txt", "w")
         errorLog.write(str(err))
         errorLog.close()
-        await ctx.interaction.edit_original_response(content="Something went wrong, please try again", view=None)
+        await status.edit(content="Something went wrong, please try again", view=None)
 
 @bot.slash_command(name='pause', description='Pauses the song')
 async def pause(ctx):
+    await ctx.response.send_message("Pausing...")
     view = View()
     view.add_item(stopButton)
     view.add_item(pauseButton)
@@ -240,12 +258,13 @@ async def pause(ctx):
         if voice_client.is_playing():
             await voice_client.pause()
     except:
-        await ctx.response.send_message("Nothing's playing")
-    await ctx.response.send_message("Paused", view=view)
+        await status.edit("Nothing's playing")
+    await status.edit("Paused", view=view)
     await clear(ctx)
 
 @bot.slash_command(name='resume', description='Resumes the song')
 async def resume(ctx):
+    await ctx.response.send_message("Resuming...")
     view = View()
     view.add_item(stopButton)
     view.add_item(pauseButton)
@@ -255,22 +274,24 @@ async def resume(ctx):
         if voice_client.is_paused():
             await voice_client.resume()
     except:
-        await ctx.response.send_message("Nothing's playing")
-    await ctx.response.send_message("Playing [{}]({})".format(title, link), view=view)
+        await status.edit("Nothing's playing")
+    await status.edit("Playing [{}]({})".format(title, link), view=view)
     await clear(ctx)
 
 @bot.slash_command(name='stop', description='Stops the song')
 async def stop(ctx):
+    await ctx.response.send_message("Stopping...")
     global looping, playlist
     looping = False
     playlist = []
     voice_client = ctx.guild.voice_client
     if voice_client.is_playing():
         voice_client.stop()
-    await ctx.response.send_message("Nothing's playing")
+    await status.edit("Nothing's playing")
     await clear(ctx)
 
 async def pauseInter(ctx):
+    await ctx.response.send_message("Pausing...")
     view = View()
     view.add_item(stopButton)
     view.add_item(pauseButton)
@@ -278,21 +299,25 @@ async def pauseInter(ctx):
     voice_client = ctx.guild.voice_client
     if voice_client.is_playing():
         voice_client.pause()
-        await ctx.response.edit_message(content="Paused", view=view)
+        await status.edit(content="Paused", view=view)
     else:
         voice_client.resume()
-        await ctx.response.edit_message(content="Playing [{}]({})".format(title, link), view=view)
+        await status.edit(content="Playing [{}]({})".format(title, link), view=view)
+    await clear(ctx)
 
 async def stopInter(ctx):
+    await ctx.response.send_message("Stopping...")
     global looping, playlist
     looping = False
     playlist = []
     voice_client = ctx.guild.voice_client
     if voice_client.is_playing():
         voice_client.stop()
-    await ctx.response.edit_message(content="Nothing's playing", view=None)
+    await status.edit(content="Nothing's playing.", view=None)
+    await clear(ctx)
 
 async def loopInter(ctx):
+    await ctx.response.send_message("Looping...")
     view = View()
     view.add_item(stopButton)
     view.add_item(pauseButton)
@@ -302,10 +327,12 @@ async def loopInter(ctx):
     looping = not looping
     if not looping:
         place = 0
-    await ctx.response.edit_message(content="Playing [{}]({}) (Looping)".format(title, link) if looping else "Playing [{}]({})".format(title, link), view=view)
+    await status.edit(content="Playing [{}]({}) (Looping)".format(title, link) if looping else "Playing [{}]({})".format(title, link), view=view)
+    await clear(ctx)
 
 @bot.slash_command(name="loop", description="Toggles looping the playlist")
 async def loopCommand(ctx):
+    await ctx.response.send_message("Looping...")
     global place
     view = View()
     view.add_item(stopButton)
@@ -314,28 +341,37 @@ async def loopCommand(ctx):
     looping = not looping
     if not looping:
         place = 0
-    await ctx.response.send_message(content="Playing [{}]({}) (Looping)".format(title, link) if looping else "Playing [{}]({})".format(title, link), view=view)
+    await status.edit(content="Playing [{}]({}) (Looping)".format(title, link) if looping else "Playing [{}]({})".format(title, link), view=view)
     await clear(ctx)
 
 @bot.slash_command(name='clear', description='Clears the channel')
 async def clearCommand(ctx):
-    try:
-        if ctx.guild.voice_client.is_playing():
-            view = View()
-            view.add_item(stopButton)
-            view.add_item(pauseButton)
-            view.add_item(loopButton)
-            await ctx.response.send_message("Playing [{}]({})".format(title, link), view=view)
-        else:
-            await ctx.response.send_message("Nothing's playing", view=None)
-    except:
-        await ctx.response.send_message("Nothing's playing", view=None)
+    # try:
+    #     if ctx.guild.voice_client.is_playing():
+    #         view = View()
+    #         view.add_item(stopButton)
+    #         view.add_item(pauseButton)
+    #         view.add_item(loopButton)
+    #         await status.edit("Playing [{}]({})".format(title, link), view=view)
+    #     else:
+    #         await ctx.response.send_message("Nothing's playing", view=None)
+    # except:
+    #     await ctx.response.send_message("Nothing's playing", view=None)
+    await ctx.response.send_message("Clearing...")
     await clear(ctx)
+
+def isnt_status(m):
+    return m.id != status.id
 
 async def clear(ctx):
     if ctx.channel.id == 819991857957830717:
         # await ctx.channel.purge(limit=20, before=datetime.datetime.now() - datetime.timedelta(seconds=2))
-        await ctx.channel.purge(limit=1, oldest_first=True)
+        await ctx.channel.purge(limit=20, check=isnt_status)
+
+async def clear_by_id(id):
+    if id == 819991857957830717:
+        # await ctx.channel.purge(limit=20, before=datetime.datetime.now() - datetime.timedelta(seconds=2))
+        await bot.get_channel(id).purge(limit=20, check=isnt_status)
 
 @bot.slash_command(name="tip", description="Give me a generous tip!")
 async def tip(ctx):
@@ -385,10 +421,11 @@ async def error(ctx):
 
 async def timeout(ctx):
     global timer
-    while time.time() < timer:
+    while timer > 0:
         await asyncio.sleep(1)
+        timer -= 1
     try:
-        await ctx.voice_client.disconnect()
+        await ctx.guild.voice_client.disconnect()
     except Exception as e:
         print(e)
 

@@ -96,7 +96,8 @@ async def join(ctx):
         if ctx.author.voice:
             channel = ctx.author.voice.channel
             await channel.connect()
-    except:
+    except Exception as err:
+        print("Error joining: " + err)
         pass
         # await ctx.response.send_message("You're probably not in a VC, why would you do that?")
     await status.edit("Nothing's playing.")
@@ -108,7 +109,7 @@ async def leave(ctx):
     try:
         await ctx.guild.voice_client.disconnect()
     except Exception as err:
-        print(err)
+        print("Error leaving: " + err)
     await clear(ctx)
     await status.edit("I'm not in a VC right now.", view=None)
 
@@ -195,8 +196,8 @@ async def play(ctx, url, speed=1, timestamp=0, bassboost=0, wobble=0, echo=0):
         
         except Exception as err:
             print(traceback.format_exc())
-            print(err)
-            errorLog = open("log.txt", "w")
+            print("Error playing: " + err)
+            errorLog = open("/home/pi/Documents/Lloyd/log.txt", "w")
             errorLog.write(str(err))
             errorLog.close()
             await status.edit(content="Something went wrong, please try again", view=None)
@@ -236,12 +237,18 @@ async def HandleEnd(err, ctx):
                     voice_channel.play(await prepare_audio(url, option, timestamp), after=lambda error: (asyncio.run_coroutine_threadsafe(HandleEnd(error, ctx), bot.loop)))
                     await status.edit(content="Playing [{}]({}) (Looping)".format(title, url) if looping else "Playing [{}]({})".format(title, url), view=view)
             except Exception as err:
-                print("error: {}".format(err))
+                print(traceback.format_exc())
+                print("Error handling end: " + err)
+                errorLog = open("/home/pi/Documents/Lloyd/log.txt", "w")
+                errorLog.write(str("Error handling end: " + err))
+                errorLog.close()
+                await status.edit(content="Something went wrong, please try again", view=None)
+                await clear(ctx)
         else:
             await status.edit(content="Nothing's playing.", view=None)
     else:
         print(err)
-        errorLog = open("log.txt", "w")
+        errorLog = open("/home/pi/Documents/Lloyd/log.txt", "w")
         errorLog.write(str(err))
         errorLog.close()
         await status.edit(content="Something went wrong, please try again", view=None)
@@ -258,6 +265,7 @@ async def pause(ctx):
         if voice_client.is_playing():
             await voice_client.pause()
     except:
+        print("Error pausing: " + err)
         await status.edit("Nothing's playing")
     await status.edit("Paused", view=view)
     await clear(ctx)
@@ -273,22 +281,51 @@ async def resume(ctx):
     try:
         if voice_client.is_paused():
             await voice_client.resume()
-    except:
+    except Exception as err:
+        print("Error resuming: " + err)
         await status.edit("Nothing's playing")
     await status.edit("Playing [{}]({})".format(title, link), view=view)
     await clear(ctx)
 
 @bot.slash_command(name='stop', description='Stops the song')
 async def stop(ctx):
-    await ctx.response.send_message("Stopping...")
-    global looping, playlist
-    looping = False
-    playlist = []
-    voice_client = ctx.guild.voice_client
-    if voice_client.is_playing():
-        voice_client.stop()
-    await status.edit("Nothing's playing")
-    await clear(ctx)
+    try:
+        await ctx.respond("Stopping...")
+        global looping, playlist
+        looping = False
+        playlist = []
+        voice_client = ctx.guild.voice_client
+        if voice_client.is_playing():
+            voice_client.stop()
+        await status.edit("Nothing's playing")
+        await clear(ctx)
+    except Exception as err:
+        print(traceback.format_exc())
+        print("Error stopping: " + err)
+        errorLog = open("/home/pi/Documents/Lloyd/log.txt", "w")
+        errorLog.write(str(err))
+        errorLog.close()
+        await status.edit(content="Something went wrong, please try again", view=None)
+        await clear(ctx)
+
+@bot.slash_command(name='skip', description='Skips the song')
+async def skip(ctx):
+    try:
+        await ctx.respond("Skipping...")
+        global looping, playlist
+        looping = False
+        voice_client = ctx.guild.voice_client
+        if voice_client.is_playing():
+            voice_client.stop()
+        await clear(ctx)
+    except Exception as err:
+        print(traceback.format_exc())
+        print("Error with skipping: " + err)
+        errorLog = open("/home/pi/Documents/Lloyd/log.txt", "w")
+        errorLog.write(str(err))
+        errorLog.close()
+        await status.edit(content="Something went wrong, please try again", view=None)
+        await clear(ctx)
 
 async def pauseInter(ctx):
     await ctx.response.send_message("Pausing...")
@@ -417,7 +454,7 @@ async def score(ctx, user):
 
 @bot.slash_command(name="error", description="Tells you exactly how I failed")
 async def error(ctx):
-    await ctx.response.send_message(file=discord.File("log.txt"))
+    await ctx.response.send_message(file=discord.File("/home/pi/Documents/Lloyd/log.txt"))
 
 async def timeout(ctx):
     global timer
@@ -427,7 +464,7 @@ async def timeout(ctx):
     try:
         await ctx.guild.voice_client.disconnect()
     except Exception as e:
-        print(e)
+        print("Error on timeout: " + e)
 
 stopButton.callback = stopInter
 pauseButton.callback = pauseInter

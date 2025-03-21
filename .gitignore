@@ -1,2 +1,14 @@
 .env
 log.txt
+bin/
+__pycache__/
+testing/
+ffmpeg-3.4.2-32bit-static/
+include/
+lib/
+share/
+CACHEDIR.TAG
+libffi7_3.3-4_amd64.deb
+libffi7_3.3-4_i386.deb
+libffi7_3.3-6_armhf.deb
+pyvenv.cfg

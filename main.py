@@ -264,7 +264,7 @@ async def pause(ctx):
     try:
         if voice_client.is_playing():
             await voice_client.pause()
-    except:
+    except Exception as err:
         print("Error pausing: " + err)
         await status.edit("Nothing's playing")
     await status.edit("Paused", view=view)

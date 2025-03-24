@@ -3,3 +3,7 @@ py-cord
 PyNaCl
 python-dotenv
 yt-dlp
+gpiozero
+adafruit-circuitpython-ssd1306
+adafruit-blinka
+Pillow

@@ -9,6 +9,11 @@ from dotenv import load_dotenv
 import time
 import datetime
 import traceback
+import board
+import digitalio
+from PIL import Image, ImageDraw, ImageFont
+import adafruit_ssd1306
+from gpiozero import CPUTemperature
 load_dotenv()
 
 title = ""
@@ -24,6 +29,40 @@ client = discord.Client(intents=intents)
 bot = discord.ext.commands.Bot(command_prefix='.', intents=intents)
 
 playlist = []
+
+i2c = board.I2C()
+WIDTH = 128
+HEIGHT = 32  # Change to 64 if needed
+BORDER = 5
+oled_reset = digitalio.DigitalInOut(board.D4)
+oled = adafruit_ssd1306.SSD1306_I2C(WIDTH, HEIGHT, i2c, addr=0x3C, reset=oled_reset)
+
+
+def drawText(text, fontSize, centered=False):
+    oled.fill(0)
+    oled.show()
+
+    print("drawing" + text)
+    oled.fill(0)
+    oled.show()
+
+    image = Image.new("1", (oled.width, oled.height))
+    draw = ImageDraw.Draw(image)
+
+    font = ImageFont.load_default(size=fontSize)
+    bbox = font.getbbox(text)
+    (font_width, font_height) = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    draw.text(
+        ((oled.width // 2 - font_width // 2 if centered else 5), oled.height // 2 - font_height // 2),
+        text,
+        font=font,
+        fill=255,
+    )
+
+    oled.image(image)
+    oled.show()
+
+drawText("Lloyd Started!", 16, True)
 
 youtube_dl.utils.bug_reports_message = lambda: ''
 
@@ -100,6 +139,7 @@ async def join(ctx):
         print("Error joining: " + err)
         pass
         # await ctx.response.send_message("You're probably not in a VC, why would you do that?")
+    drawText("Lloyd", 16, True)
     await status.edit("Nothing's playing.")
     await clear(ctx)
 
@@ -187,6 +227,7 @@ async def play(ctx, url, speed=1, timestamp=0, bassboost=0, wobble=0, echo=0):
             await ctx.response.send_message("Preparing...", view=None)
             async with ctx.channel.typing():
                 voice_channel.play(await prepare_audio(url, option, timestamp), after=lambda error: (asyncio.run_coroutine_threadsafe(HandleEnd(error, ctx), bot.loop)))
+                drawText(title, 14)
                 print("Playing {}".format(title))
                 # if "ytsearch" in url:
                 #     await status.edit(content="Playing {} (Looping)".format(title) if looping else "Playing {}".format(title, url), view=view)
@@ -235,6 +276,7 @@ async def HandleEnd(err, ctx):
                 view.add_item(loopButton)
                 async with ctx.channel.typing():
                     voice_channel.play(await prepare_audio(url, option, timestamp), after=lambda error: (asyncio.run_coroutine_threadsafe(HandleEnd(error, ctx), bot.loop)))
+                    drawText(title, 14)
                     await status.edit(content="Playing [{}]({}) (Looping)".format(title, url) if looping else "Playing [{}]({})".format(title, url), view=view)
             except Exception as err:
                 print(traceback.format_exc())
@@ -245,6 +287,7 @@ async def HandleEnd(err, ctx):
                 await status.edit(content="Something went wrong, please try again", view=None)
                 await clear(ctx)
         else:
+            drawText("Lloyd", 16, True)
             await status.edit(content="Nothing's playing.", view=None)
     else:
         print(err)
@@ -266,6 +309,7 @@ async def pause(ctx):
             await voice_client.pause()
     except Exception as err:
         print("Error pausing: " + err)
+        drawText("Lloyd", 16, True)
         await status.edit("Nothing's playing")
     await status.edit("Paused", view=view)
     await clear(ctx)
@@ -283,6 +327,7 @@ async def resume(ctx):
             await voice_client.resume()
     except Exception as err:
         print("Error resuming: " + err)
+        drawText("Lloyd", 16, True)
         await status.edit("Nothing's playing")
     await status.edit("Playing [{}]({})".format(title, link), view=view)
     await clear(ctx)
@@ -297,6 +342,7 @@ async def stop(ctx):
         voice_client = ctx.guild.voice_client
         if voice_client.is_playing():
             voice_client.stop()
+        drawText("Lloyd", 16, True)
         await status.edit("Nothing's playing")
         await clear(ctx)
     except Exception as err:
@@ -350,6 +396,8 @@ async def stopInter(ctx):
     voice_client = ctx.guild.voice_client
     if voice_client.is_playing():
         voice_client.stop()
+    
+    drawText("Lloyd", 16, True)
     await status.edit(content="Nothing's playing.", view=None)
     await clear(ctx)
 

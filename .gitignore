@@ -12,3 +12,4 @@ libffi7_3.3-4_amd64.deb
 libffi7_3.3-4_i386.deb
 libffi7_3.3-6_armhf.deb
 pyvenv.cfg
+env/

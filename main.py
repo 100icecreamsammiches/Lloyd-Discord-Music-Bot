@@ -36,33 +36,39 @@ ytdl_format_options = {
     'logtostderr': False,
     'quiet': True,
     'no_warnings': True,
+    # 'verbose': True,
     'default_search': 'ytsearch',
     'source_address': '0.0.0.0' # bind to ipv4 since ipv6 addresses cause issues sometimes
+    # 'downloader': 'm3u8:native'
+    # 'youtube_include_dash_manifest': False,
+    # 'youtube_include_hls_manifest': False,
 }
 
+
 ffmpeg_options = {
+    "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
     'options': '-vn'
 }
 
-ytdl = youtube_dl.YoutubeDL(ytdl_format_options)
+# ytdl = youtube_dl.YoutubeDL(ytdl_format_options)
 
-class YTDLSource(discord.PCMVolumeTransformer):
-    def __init__(self, source, *, data, volume=0.5):
-        super().__init__(source, volume)
-        self.data = data
-        self.title = data.get('title')
-        self.url = ""
+# class YTDLSource(discord.PCMVolumeTransformer):
+#     def __init__(self, source, *, data, volume=0.5):
+#         super().__init__(source, volume)
+#         self.data = data
+#         self.title = data.get('title')
+#         self.url = ""
 
-    @classmethod
-    async def from_url(cls, url, *, loop=None, stream=False):
-        ytdl.cache.remove()
-        loop = loop or asyncio.get_event_loop()
-        data = await loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=not stream))
-        if 'entries' in data:
-            # take first item from a playlist
-            data = data['entries'][0]
-        filename = data['title'] if stream else ytdl.prepare_filename(data)
-        return filename
+#     @classmethod
+#     async def from_url(cls, url, *, loop=None, stream=False):
+#         ytdl.cache.remove()
+#         loop = loop or asyncio.get_event_loop()
+#         data = await loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=not stream))
+#         if 'entries' in data:
+#             # take first item from a playlist
+#             data = data['entries'][0]
+#         filename = data['title']# if stream else ytdl.prepare_filename(data)
+#         return filename
     
 
 status = None
@@ -97,7 +103,7 @@ async def join(ctx):
             channel = ctx.author.voice.channel
             await channel.connect()
     except Exception as err:
-        print("Error joining: " + err)
+        print("Error joining: " + str(err))
         pass
         # await ctx.response.send_message("You're probably not in a VC, why would you do that?")
     await status.edit("Nothing's playing.")
@@ -114,42 +120,51 @@ async def leave(ctx):
     await status.edit("I'm not in a VC right now.", view=None)
 
 async def prepare_audio(url, option, timestamp=0):
-    global timer
-    timer = 9999999999
-    with youtube_dl.YoutubeDL(ytdl_format_options) as ydl:
-        global title, link
-        info = ydl.extract_info(url, download=False)
-        if 'entries' in info:
-            # take first item from a playlist
-            info = info['entries'][0]
-        # print(info.keys())
-        URL = info['url']
-        title = info.get("title", None)
-        link = info['webpage_url']
+    try:
+        global timer
+        timer = 9999999999
+        with youtube_dl.YoutubeDL(ytdl_format_options) as ydl:
+            ydl.cache.remove()
+            global title, link
+            info = ydl.extract_info(url, download=False)
+            if 'entries' in info:
+                info = info['entries'][0]
+            URL = info['url']
+            title = info.get("title", None)
+            link = info['webpage_url']
 
-    for i in range(len(url) - 2):
-        if url[i:i+2] == "t=":
-            timestamp = url[i+2:]
-            if "s" in timestamp:
-                timestamp = timestamp[:timestamp.index("s"):]
-            timestamp = int(timestamp)
-    return discord.FFmpegPCMAudio(source=URL, before_options='-vn -ss {} -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -threads 16 -loglevel error'.format(timestamp), options=option)
+        for i in range(len(url) - 2):
+            if url[i:i+2] == "t=":
+                timestamp = url[i+2:]
+                if "s" in timestamp:
+                    timestamp = timestamp[:timestamp.index("s"):]
+                timestamp = int(timestamp)
+
+        print(URL)
+        return discord.FFmpegPCMAudio(source=URL, before_options='-vn -ss {} -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -threads 16 -loglevel error'.format(timestamp), options=option)
+    except Exception as err:
+            print(traceback.format_exc())
+            print("Error preparing: " + str(err))
+            errorLog = open("/home/pi/Documents/Lloyd/log.txt", "w")
+            errorLog.write(str(err))
+            errorLog.close()
+            await status.edit(content="Something went wrong, please try again", view=None)
 
 @bot.slash_command(name='play', description='Plays a song')
 async def play(ctx, url, speed=1, timestamp=0, bassboost=0, wobble=0, echo=0):
+    await ctx.response.send_message("Preparing...", view=None)
     view = View()
     view.add_item(stopButton)
     view.add_item(pauseButton)
     view.add_item(loopButton)
     
     voice_channel = ctx.guild.voice_client
-
     if voice_channel == None:
-        await ctx.author.voice.channel.connect()
+        vc = await ctx.author.voice.channel.connect()
         voice_channel = ctx.guild.voice_client
 
     speed = float(speed)
-    option = "-af "
+    option = "-http_persistent 0 -af "
     if speed > 2:
         power = math.floor(math.log(float(speed), 2))
         option += ('atempo=2.0,' * power) + 'atempo={}'.format(speed / (2**power))
@@ -184,7 +199,6 @@ async def play(ctx, url, speed=1, timestamp=0, bassboost=0, wobble=0, echo=0):
         url = "ytsearch:'{}'".format(url)
     if not voice_channel.is_playing():
         try:
-            await ctx.response.send_message("Preparing...", view=None)
             async with ctx.channel.typing():
                 voice_channel.play(await prepare_audio(url, option, timestamp), after=lambda error: (asyncio.run_coroutine_threadsafe(HandleEnd(error, ctx), bot.loop)))
                 print("Playing {}".format(title))
@@ -196,7 +210,7 @@ async def play(ctx, url, speed=1, timestamp=0, bassboost=0, wobble=0, echo=0):
         
         except Exception as err:
             print(traceback.format_exc())
-            print("Error playing: " + err)
+            print("Error playing: " + str(err))
             errorLog = open("/home/pi/Documents/Lloyd/log.txt", "w")
             errorLog.write(str(err))
             errorLog.close()

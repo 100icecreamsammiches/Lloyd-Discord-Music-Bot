@@ -1,5 +1,6 @@
 ffmpeg-python
 py-cord
+davey
 PyNaCl
 python-dotenv
 yt-dlp

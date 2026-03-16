@@ -1,6 +1,6 @@
 import discord
 import asyncio
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord.ui import Button, View
 import yt_dlp as youtube_dl
 import math
@@ -16,7 +16,7 @@ info = {}
 link = ""
 looping = False
 place = 0
-timer = 9999999999
+timers = {}
 max_timer = 60*60
 
 intents = discord.Intents.all()
@@ -25,7 +25,7 @@ bot = discord.ext.commands.Bot(command_prefix='.', intents=intents)
 
 playlist = []
 
-youtube_dl.utils.bug_reports_message = lambda: ''
+# youtube_dl.utils.bug_reports_message = lambda: ''
 
 ytdl_format_options = {
     'format': 'bestaudio',
@@ -38,7 +38,9 @@ ytdl_format_options = {
     'no_warnings': True,
     # 'verbose': True,
     'default_search': 'ytsearch',
-    'source_address': '0.0.0.0' # bind to ipv4 since ipv6 addresses cause issues sometimes
+    'source_address': '0.0.0.0', # bind to ipv4 since ipv6 addresses cause issues sometimes
+    # 'extractor_args': {'youtube': {'player_client': ['ios']}},
+    # 'listformats': True
     # 'downloader': 'm3u8:native'
     # 'youtube_include_dash_manifest': False,
     # 'youtube_include_hls_manifest': False,
@@ -96,35 +98,42 @@ loopButton = Button(
 )
 
 @bot.slash_command(name='join', description='Tells Lloyd to join the voice channel')
-async def join(ctx):
-    await ctx.response.send_message("Joining...")
-    try:
-        if ctx.author.voice:
-            channel = ctx.author.voice.channel
-            await channel.connect()
-    except Exception as err:
-        print("Error joining: " + str(err))
-        pass
-        # await ctx.response.send_message("You're probably not in a VC, why would you do that?")
-    await status.edit("Nothing's playing.")
+async def join_command(ctx):
+    if ctx.author.voice:
+        await ctx.response.send_message("Joining...")
+        join(ctx.author.voice.channel)
+        await status.edit("Nothing's playing.")
+    else:
+        await status.edit("I'm not in a VC.")
     await clear(ctx)
 
-@bot.slash_command(name='leave', description='Tells Lloyd to leave the voice channel')
-async def leave(ctx):
-    await ctx.response.send_message("Leaving...")
+async def join(channel):
+    voice = None
     try:
-        await ctx.guild.voice_client.disconnect()
+        voice = await channel.connect()
+        timers[voice] = max_timer
     except Exception as err:
-        print("Error leaving: " + err)
+        print("Error joining: " + str(err))
+    return voice
+
+@bot.slash_command(name='leave', description='Tells Lloyd to leave the voice channel')
+async def leave_command(ctx):
+    await ctx.response.send_message("Leaving...")
+    await leave(ctx.guild.voice_client)
+    await status.edit("I'm not in a VC.", view=None)
     await clear(ctx)
-    await status.edit("I'm not in a VC right now.", view=None)
+
+async def leave(voice):
+    try:
+        await voice.disconnect()
+        timers.pop(voice, None)
+    except Exception as err:
+        print("Error leaving:", err)
+
 
 async def prepare_audio(url, option, timestamp=0):
     try:
-        global timer
-        timer = 9999999999
         with youtube_dl.YoutubeDL(ytdl_format_options) as ydl:
-            ydl.cache.remove()
             global title, link
             info = ydl.extract_info(url, download=False)
             if 'entries' in info:
@@ -139,10 +148,9 @@ async def prepare_audio(url, option, timestamp=0):
                 if "s" in timestamp:
                     timestamp = timestamp[:timestamp.index("s"):]
                 timestamp = int(timestamp)
-
-        print(URL)
         return discord.FFmpegPCMAudio(source=URL, before_options='-vn -ss {} -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -threads 16 -loglevel error'.format(timestamp), options=option)
     except Exception as err:
+            ydl.cache.remove()
             print(traceback.format_exc())
             print("Error preparing: " + str(err))
             errorLog = open("/home/pi/Documents/Lloyd/log.txt", "w")
@@ -160,8 +168,8 @@ async def play(ctx, url, speed=1, timestamp=0, bassboost=0, wobble=0, echo=0):
     
     voice_channel = ctx.guild.voice_client
     if voice_channel == None:
-        vc = await ctx.author.voice.channel.connect()
-        voice_channel = ctx.guild.voice_client
+        voice_channel = await join(ctx.author.voice.channel)
+    timers[voice_channel] = -1
 
     speed = float(speed)
     option = "-http_persistent 0 -af "
@@ -210,11 +218,12 @@ async def play(ctx, url, speed=1, timestamp=0, bassboost=0, wobble=0, echo=0):
         
         except Exception as err:
             print(traceback.format_exc())
-            print("Error playing: " + str(err))
-            errorLog = open("/home/pi/Documents/Lloyd/log.txt", "w")
-            errorLog.write(str(err))
-            errorLog.close()
-            await status.edit(content="Something went wrong, please try again", view=None)
+            if "source must be an AudioSource not NoneType" not in str(err):
+                print("Error playing: " + str(err))
+                errorLog = open("/home/pi/Documents/Lloyd/log.txt", "w")
+                errorLog.write(str(err))
+                errorLog.close()
+                await status.edit(content="Something went wrong, please try again", view=None)
             await clear(ctx)
     
     else:
@@ -223,11 +232,9 @@ async def play(ctx, url, speed=1, timestamp=0, bassboost=0, wobble=0, echo=0):
         # await msg.delete_original_message()
 
 async def HandleEnd(err, ctx):
-    global timer
     global looping
     global place
     global playlist
-    timer = max_timer
     asyncio.run_coroutine_threadsafe(timeout(ctx), bot.loop)
     if err == None:
         if looping:
@@ -260,6 +267,8 @@ async def HandleEnd(err, ctx):
                 await clear(ctx)
         else:
             await status.edit(content="Nothing's playing.", view=None)
+            voice_channel = ctx.guild.voice_client
+            timers[voice_channel] = -1
     else:
         print(err)
         errorLog = open("/home/pi/Documents/Lloyd/log.txt", "w")
@@ -302,25 +311,28 @@ async def resume(ctx):
     await clear(ctx)
 
 @bot.slash_command(name='stop', description='Stops the song')
-async def stop(ctx):
+async def stop_command(ctx):
+    await ctx.respond("Stopping...")
+    await stop(ctx.guild.voice_client)
+    await status.edit("Nothing's playing")
+    await clear(ctx)
+    
+
+async def stop(voice):
     try:
-        await ctx.respond("Stopping...")
         global looping, playlist
         looping = False
         playlist = []
-        voice_client = ctx.guild.voice_client
-        if voice_client.is_playing():
-            voice_client.stop()
-        await status.edit("Nothing's playing")
-        await clear(ctx)
+        if voice is not None and voice.is_playing():
+            voice.stop()
+            timers[voice] = max_timer
     except Exception as err:
         print(traceback.format_exc())
         print("Error stopping: " + err)
         errorLog = open("/home/pi/Documents/Lloyd/log.txt", "w")
         errorLog.write(str(err))
         errorLog.close()
-        await status.edit(content="Something went wrong, please try again", view=None)
-        await clear(ctx)
+
 
 @bot.slash_command(name='skip', description='Skips the song')
 async def skip(ctx):
@@ -358,12 +370,8 @@ async def pauseInter(ctx):
 
 async def stopInter(ctx):
     await ctx.response.send_message("Stopping...")
-    global looping, playlist
-    looping = False
-    playlist = []
     voice_client = ctx.guild.voice_client
-    if voice_client.is_playing():
-        voice_client.stop()
+    await stop(voice_client)
     await status.edit(content="Nothing's playing.", view=None)
     await clear(ctx)
 
@@ -426,8 +434,8 @@ async def clear_by_id(id):
 
 @bot.slash_command(name="tip", description="Give me a generous tip!")
 async def tip(ctx):
-    await ctx.response.send_message("Thanks for the tip!", file = discord.File("lloyd-tip.gif"))
-    f = open("tips.txt", mode="r")
+    await ctx.response.send_message("Thanks for the tip!", file = discord.File("/home/pi/Documents/Lloyd/lloyd-tip.gif"))
+    f = open("/home/pi/Documents/Lloyd/tips.txt", mode="r")
     lst = (f.read()).split(",")
     f.close()
     tips = []
@@ -442,7 +450,7 @@ async def tip(ctx):
         string += str(i[0]) + "," + str(i[1]) + ","
     string += str(tips[-1][0] + "," + str(tips[-1][1]))
 
-    f = open("tips.txt", mode="w")
+    f = open("/home/pi/Documents/Lloyd/tips.txt", mode="w")
     f.write(string)
     f.close()
 
@@ -453,7 +461,7 @@ async def score(ctx, user):
     elif "<@!" not in user:
         await ctx.response.send_message("That's not a user!")
     else:
-        f = open("tips.txt", mode="r")
+        f = open("/home/pi/Documents/Lloyd/tips.txt", mode="r")
         lst = (f.read()).split(",")
         f.close()
         tips = []
@@ -470,19 +478,25 @@ async def score(ctx, user):
 async def error(ctx):
     await ctx.response.send_message(file=discord.File("/home/pi/Documents/Lloyd/log.txt"))
 
-async def timeout(ctx):
-    global timer
-    while timer > 0:
+@tasks.loop(seconds=1.0)
+async def timeout():
+    print("started timers")
+    while True:
+        print(timers)
+        for channel in timers.copy().keys():
+            timers[channel] -= 1
+            if timers[channel] == 0:
+                try:
+                    await leave(channel)
+                except Exception as e:
+                    print("Error on timeout: " + e)
+                await status.edit("I left VC.", view=None)
         await asyncio.sleep(1)
-        timer -= 1
-    try:
-        await ctx.guild.voice_client.disconnect()
-    except Exception as e:
-        print("Error on timeout: " + e)
 
 stopButton.callback = stopInter
 pauseButton.callback = pauseInter
 loopButton.callback = loopInter
 
-
-bot.run(os.environ.get("LLOYD_TOKEN"))
+if __name__ == "__main__":
+    timeout.start()
+    bot.run(os.environ.get("LLOYD_TOKEN"))

@@ -480,9 +480,7 @@ async def error(ctx):
 
 @tasks.loop(seconds=1.0)
 async def timeout():
-    print("started timers")
     while True:
-        print(timers)
         for channel in timers.copy().keys():
             timers[channel] -= 1
             if timers[channel] == 0:

@@ -16,8 +16,6 @@ info = {}
 link = ""
 looping = False
 place = 0
-timers = {}
-max_timer = 60*60
 
 intents = discord.Intents.all()
 client = discord.Client(intents=intents)
@@ -101,17 +99,16 @@ loopButton = Button(
 async def join_command(ctx):
     if ctx.author.voice:
         await ctx.response.send_message("Joining...")
-        join(ctx.author.voice.channel)
-        await status.edit("Nothing's playing.")
+        await join(ctx.author.voice.channel)
+        await status.edit("Nothing's playing")
     else:
-        await status.edit("I'm not in a VC.")
+        await status.edit("Not in VC")
     await clear(ctx)
 
 async def join(channel):
     voice = None
     try:
         voice = await channel.connect()
-        timers[voice] = max_timer
     except Exception as err:
         print("Error joining: " + str(err))
     return voice
@@ -120,13 +117,12 @@ async def join(channel):
 async def leave_command(ctx):
     await ctx.response.send_message("Leaving...")
     await leave(ctx.guild.voice_client)
-    await status.edit("I'm not in a VC.", view=None)
+    await status.edit("Not in VC", view=None)
     await clear(ctx)
 
 async def leave(voice):
     try:
         await voice.disconnect()
-        timers.pop(voice, None)
     except Exception as err:
         print("Error leaving:", err)
 
@@ -169,7 +165,6 @@ async def play(ctx, url, speed=1, timestamp=0, bassboost=0, wobble=0, echo=0):
     voice_channel = ctx.guild.voice_client
     if voice_channel == None:
         voice_channel = await join(ctx.author.voice.channel)
-    timers[voice_channel] = -1
 
     speed = float(speed)
     option = "-http_persistent 0 -af "
@@ -266,9 +261,8 @@ async def HandleEnd(err, ctx):
                 await status.edit(content="Something went wrong, please try again", view=None)
                 await clear(ctx)
         else:
-            await status.edit(content="Nothing's playing.", view=None)
+            await status.edit(content="Nothing's playing", view=None)
             voice_channel = ctx.guild.voice_client
-            timers[voice_channel] = -1
     else:
         print(err)
         errorLog = open("/home/pi/Documents/Lloyd/log.txt", "w")
@@ -325,7 +319,6 @@ async def stop(voice):
         playlist = []
         if voice is not None and voice.is_playing():
             voice.stop()
-            timers[voice] = max_timer
     except Exception as err:
         print(traceback.format_exc())
         print("Error stopping: " + err)
@@ -372,7 +365,7 @@ async def stopInter(ctx):
     await ctx.response.send_message("Stopping...")
     voice_client = ctx.guild.voice_client
     await stop(voice_client)
-    await status.edit(content="Nothing's playing.", view=None)
+    await status.edit(content="Nothing's playing", view=None)
     await clear(ctx)
 
 async def loopInter(ctx):
@@ -478,18 +471,19 @@ async def score(ctx, user):
 async def error(ctx):
     await ctx.response.send_message(file=discord.File("/home/pi/Documents/Lloyd/log.txt"))
 
-@tasks.loop(seconds=1.0)
+@tasks.loop(seconds=60.0)
 async def timeout():
     while True:
-        for channel in timers.copy().keys():
-            timers[channel] -= 1
-            if timers[channel] == 0:
+        for voice in bot.voice_clients:
+            if len(voice.channel.members) == 1:
                 try:
-                    await leave(channel)
+                    if voice.is_playing():
+                        await stop(voice)
+                    await leave(voice)
                 except Exception as e:
-                    print("Error on timeout: " + e)
-                await status.edit("I left VC.", view=None)
-        await asyncio.sleep(1)
+                    print("Error on timeout: " + str(e))
+                await status.edit("Not in VC", view=None)
+        await asyncio.sleep(60)
 
 stopButton.callback = stopInter
 pauseButton.callback = pauseInter
